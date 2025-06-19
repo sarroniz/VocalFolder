@@ -2,11 +2,12 @@ import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QPushButton, QComboBox, QVBoxLayout,
     QHBoxLayout, QLabel, QFileDialog, QTableWidget, QTableWidgetItem,
-    QMenuBar, QMenu, QCheckBox, QMessageBox, QInputDialog, QSizePolicy
+    QMenuBar, QMenu, QCheckBox, QMessageBox, QInputDialog, QSizePolicy,
+    QHeaderView, QToolButton
 )
 
 from PyQt6.QtGui import (QKeyEvent, QAction, QColor)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import (Qt, QPoint)
 
 from app.core.file_loader import load_file_pairs
 from app.core.textgrid_parser import extract_intervals
@@ -25,6 +26,9 @@ def shorten_path(path: str, max_chars: int = 60) -> str:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.variable_column_indices = []
+        self.active_filters = {}
+
         self.setWindowTitle("Vocal Folder (beta)")
 
         self.file_pairs = []
@@ -58,6 +62,8 @@ class MainWindow(QMainWindow):
         self.table.cellClicked.connect(self.on_table_select)
         self.table.currentCellChanged.connect(self.on_table_select)
         self.table.installEventFilter(self)
+        self.table.horizontalHeader().sectionClicked.connect(self.show_filter_menu)
+
 
         self.toggle_table_editing(0)
 
@@ -134,15 +140,9 @@ class MainWindow(QMainWindow):
 
         self.file_pairs = load_file_pairs(folder)
 
-        # Mostrar ruta truncada visualmente
+        # Shows truncated folder path in the label
         short_path = shorten_path(folder)
         self.folder_label.setText(short_path)
-        self.folder_label.setToolTip(folder)
-
-        metrics = self.folder_label.fontMetrics()
-        max_width = self.folder_label.width() or 300
-        elided_path = metrics.elidedText(folder, Qt.TextElideMode.ElideMiddle, max_width)
-        self.folder_label.setText(elided_path)
         self.folder_label.setToolTip(folder)
 
         tier_name_sets = []
@@ -177,8 +177,12 @@ class MainWindow(QMainWindow):
                     label = intv['label']
                     if '-' in label:
                         label_has_dash = True
+                    start = float(intv['start'])
+                    end = float(intv['end'])
+                    duration = round(end - start, 4)
+
                     self.tier_intervals.append([
-                        name, label, intv['start'], intv['end'], intv['duration']
+                        name, label, start, end, duration
                     ])
             except Exception as e:
                 print(f"Error parsing {tg_path}: {e}")
@@ -206,7 +210,7 @@ class MainWindow(QMainWindow):
 
         # Construir encabezados
         base_headers = ["File", "Label"]
-        feature_headers = ["Start", "End", "Duration"]
+        feature_headers = ["Duration"]
         variable_headers = []
 
         if self.split_labels:
@@ -217,6 +221,7 @@ class MainWindow(QMainWindow):
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setRowCount(len(self.tier_intervals))
+        self.table.verticalHeader().setMinimumSectionSize(30)
 
         for i, row in enumerate(self.tier_intervals):
             self.table.setItem(i, 0, QTableWidgetItem(str(row[0])))  # File
@@ -229,12 +234,26 @@ class MainWindow(QMainWindow):
                     self.table.setItem(i, offset + k, QTableWidgetItem(part))
                 offset += len(variable_headers)
 
-            self.table.setItem(i, offset + 0, QTableWidgetItem(str(row[2])))  # Start
-            self.table.setItem(i, offset + 1, QTableWidgetItem(str(row[3])))  # End
-            self.table.setItem(i, offset + 2, QTableWidgetItem(str(row[4])))  # Duration
+            self.table.setItem(i, offset, QTableWidgetItem(str(row[4])))  # Duration
+
+            if self.split_labels:
+                var_start_idx = 2
+                var_end_idx = var_start_idx + len(variable_headers)
 
         self.modified_cells.clear()
         self.table.itemChanged.connect(self.mark_as_modified)
+
+        self.variable_column_indices = []
+        if self.split_labels:
+            base_offset = 2  # File + Label
+            for i in range(len(variable_headers)):
+                col_index = base_offset + i
+                self.variable_column_indices.append(col_index)
+
+            self.add_filter_buttons_to_headers(
+                min(self.variable_column_indices),
+                max(self.variable_column_indices) + 1
+            )
 
     def on_table_select(self, row, column, *_):
         try:
@@ -299,6 +318,52 @@ class MainWindow(QMainWindow):
                     return True  # prevent default tab behavior
 
         return super().eventFilter(source, event)
+    
+    def show_filter_menu(self, col):
+        if col not in getattr(self, "variable_column_indices", []):
+            return
+
+        unique_values = set()
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, col)
+            if item:
+                unique_values.add(item.text())
+
+        if col not in self.active_filters:
+            self.active_filters[col] = set(unique_values)
+
+        menu = QMenu(self)
+        for val in sorted(unique_values):
+            action = QAction(val, self)
+            action.setCheckable(True)
+            action.setChecked(val in self.active_filters[col])
+            action.toggled.connect(lambda checked, v=val, c=col: self._apply_column_filter(c, v, checked))
+            menu.addAction(action)
+
+        header = self.table.horizontalHeader()
+        section_pos = header.sectionViewportPosition(col)
+        global_pos = self.table.mapToGlobal(header.pos()) + QPoint(section_pos, header.height())
+        menu.exec(global_pos)
+
+    def add_filter_buttons_to_headers(self, variable_start_idx, variable_end_idx):
+        self.variable_column_indices = list(range(variable_start_idx, variable_end_idx))
+        header = self.table.horizontalHeader()
+        header.sectionClicked.connect(self.show_filter_menu)
+
+    def _apply_column_filter(self, col, value, checked):
+        if col not in self.active_filters:
+            self.active_filters[col] = set()
+
+        if checked:
+            self.active_filters[col].add(value)
+        else:
+            self.active_filters[col].discard(value)
+
+        allowed_values = self.active_filters[col]
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, col)
+            if item:
+                self.table.setRowHidden(row, item.text() not in allowed_values)
 
     def play_from_waveform(self):
         try:
@@ -372,8 +437,8 @@ class MainWindow(QMainWindow):
             variable_values = [self.table.item(row, i).text().strip() for i in range(var_start, var_end)]
             full_label = "-".join(variable_values) if variable_values else label
 
-            start = float(self.table.item(row, headers.index("Start")).text())
-            end = float(self.table.item(row, headers.index("End")).text())
+            start = float(self.tier_intervals[row][2])
+            end = float(self.tier_intervals[row][3])
 
             for idx, (name, wav_path, tg_path) in enumerate(self.file_pairs):
                 if name == self.tier_intervals[row][0] and name != file_name:

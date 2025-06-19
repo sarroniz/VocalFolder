@@ -49,4 +49,4 @@ assets/screenshots/
 .vscode/
 
 # ---- Ignore test result outputs ----
-tests/__pycache__/
+tests/
