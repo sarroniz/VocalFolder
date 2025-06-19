@@ -1,0 +1,52 @@
+# ---- Python bytecode ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ---- MacOS system files ----
+.DS_Store
+
+# ---- Virtual environments ----
+venv/
+env/
+.venv/
+.vscode/
+.idea/
+
+# ---- OS metadata ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ---- Python build artifacts ----
+build/
+dist/
+*.egg-info/
+
+# ---- Logs and temp files ----
+*.log
+*.tmp
+*.bak
+
+# ---- Jupyter / IPython ----
+.ipynb_checkpoints
+
+# ---- Installer configs ----
+setup.cfg
+*.spec
+
+# ---- Vocal Folder user data ----
+*.wav~
+*.TextGrid~
+*.csv~
+*.json~
+
+# ---- Optional: Ignore screenshots or outputs ----
+assets/screenshots/
+
+# ---- VS Code Python debugger files ----
+.vscode/
+
+# ---- Ignore test result outputs ----
+tests/__pycache__/

@@ -22,10 +22,8 @@ class WaveformViewer(QWidget):
         layout.addWidget(self.canvas)
         self.setLayout(layout)
 
-    def plot_waveform(self, wav_path, start=None, end=None):
-        print(f"📊 Plotting: {os.path.basename(wav_path)}, start={start}, end={end}")
+    def plot_waveform(self, wav_path, start=None, end=None, zoom=False):
         self.figure.clear()
-        self.canvas.draw()  # 🧼 Clear canvas completely before replotting
         ax = self.figure.add_subplot(111)
 
         try:
@@ -33,20 +31,27 @@ class WaveformViewer(QWidget):
             if data.ndim > 1:
                 data = data[:, 0]  # Use first channel if stereo
 
+            time = np.arange(len(data)) / rate
+            ax.plot(time, data, color='lightgray', linewidth=0.8)  # Always show full waveform
+
             if start is not None and end is not None:
                 start_idx = int(start * rate)
                 end_idx = int(end * rate)
-                data = data[start_idx:end_idx]
-                time = np.linspace(start, end, num=len(data))
-            else:
-                time = np.linspace(0, len(data) / rate, num=len(data))
 
-            ax.plot(time, data, linewidth=0.8, color="steelblue")
-            ax.set_xlim(time[0], time[-1])  # ✅ Force axes to match data
+                start_idx = max(0, start_idx)
+                end_idx = min(len(data), end_idx)
+
+                time_segment = np.arange(start_idx, end_idx) / rate
+                data_segment = data[start_idx:end_idx]
+
+                ax.plot(time_segment, data_segment, color='steelblue', linewidth=1.2)
+
+                if zoom:
+                    ax.set_xlim(start, end)
+
             ax.set_title("Waveform")
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Amplitude")
-
             self.figure.tight_layout()
             self.canvas.draw()
 
