@@ -1,0 +1,106 @@
+File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0 
+xmax = 2.24309776495312 
+tiers? <exists> 
+size = 5 
+item []: 
+    item [1]:
+        class = "IntervalTier" 
+        name = "phrase" 
+        xmin = 0 
+        xmax = 2.24309776495312 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.24309776495312 
+            text = "Carlos Benitez ha pedido una burra gris" 
+    item [2]:
+        class = "IntervalTier" 
+        name = "fricatives" 
+        xmin = 0 
+        xmax = 2.24309776495312 
+        intervals: size = 3 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.2531426123419749 
+            text = "" 
+        intervals [2]:
+            xmin = 0.2531426123419749 
+            xmax = 0.3218105786835679 
+            text = "b-carlos_benitez-o-sb-e-ato-ext-f-fem-jov" 
+        intervals [3]:
+            xmin = 0.3218105786835679 
+            xmax = 2.24309776495312 
+            text = "" 
+    item [3]:
+        class = "IntervalTier" 
+        name = "approximants" 
+        xmin = 0 
+        xmax = 2.24309776495312 
+        intervals: size = 5 
+        intervals [1]:
+            xmin = 0 
+            xmax = 1.5695350939804484 
+            text = "" 
+        intervals [2]:
+            xmin = 1.5695350939804484 
+            xmax = 1.6121092331122497 
+            text = "b-una_burra-a-b-u-ton-ext-f-fem-jov" 
+        intervals [3]:
+            xmin = 1.6121092331122497 
+            xmax = 1.8080152499322537 
+            text = "" 
+        intervals [4]:
+            xmin = 1.8080152499322537 
+            xmax = 1.8382291551225762 
+            text = "g-burra_gris-a-gr-i-ton-ext-a-fem-jov" 
+        intervals [5]:
+            xmin = 1.8382291551225762 
+            xmax = 2.24309776495312 
+            text = "" 
+    item [4]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.24309776495312 
+        intervals: size = 7 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.2005104617174709 
+            text = "" 
+        intervals [2]:
+            xmin = 0.2005104617174709 
+            xmax = 0.2531426123419749 
+            text = "prec-v-sb" 
+        intervals [3]:
+            xmin = 0.2531426123419749 
+            xmax = 1.5014863697201406 
+            text = "" 
+        intervals [4]:
+            xmin = 1.5014863697201406 
+            xmax = 1.5660342580812312 
+            text = "prec-v-b" 
+        intervals [5]:
+            xmin = 1.5660342580812312 
+            xmax = 1.7352272056101583 
+            text = "" 
+        intervals [6]:
+            xmin = 1.7352272056101583 
+            xmax = 1.8080152499322537 
+            text = "prec-v-gr" 
+        intervals [7]:
+            xmin = 1.8080152499322537 
+            xmax = 2.24309776495312 
+            text = "" 
+    item [5]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.24309776495312 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.24309776495312 
+            text = "" 

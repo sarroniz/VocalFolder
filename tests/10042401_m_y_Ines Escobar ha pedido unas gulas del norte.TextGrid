@@ -1,0 +1,74 @@
+File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0 
+xmax = 2.574019162538775 
+tiers? <exists> 
+size = 5 
+item []: 
+    item [1]:
+        class = "IntervalTier" 
+        name = "phrase" 
+        xmin = 0 
+        xmax = 2.574019162538775 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.574019162538775 
+            text = "Ines Escobar ha pedido unas gulas del norte" 
+    item [2]:
+        class = "IntervalTier" 
+        name = "fricatives" 
+        xmin = 0 
+        xmax = 2.574019162538775 
+        intervals: size = 3 
+        intervals [1]:
+            xmin = 0 
+            xmax = 1.6159129483556 
+            text = "" 
+        intervals [2]:
+            xmin = 1.6159129483556 
+            xmax = 1.7175553594486814 
+            text = "g-unas_gulas-a-sg-u-ton-ext-f-fem-jov" 
+        intervals [3]:
+            xmin = 1.7175553594486814 
+            xmax = 2.574019162538775 
+            text = "" 
+    item [3]:
+        class = "IntervalTier" 
+        name = "approximants" 
+        xmin = 0 
+        xmax = 2.574019162538775 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.574019162538775 
+            text = "" 
+    item [4]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.574019162538775 
+        intervals: size = 3 
+        intervals [1]:
+            xmin = 0 
+            xmax = 1.5401793871489815 
+            text = "" 
+        intervals [2]:
+            xmin = 1.5401793871489815 
+            xmax = 1.6139199599028018 
+            text = "prec-v-sg" 
+        intervals [3]:
+            xmin = 1.6139199599028018 
+            xmax = 2.574019162538775 
+            text = "" 
+    item [5]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.574019162538775 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.574019162538775 
+            text = "" 

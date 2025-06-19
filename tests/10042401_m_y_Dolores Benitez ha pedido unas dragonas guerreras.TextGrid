@@ -1,0 +1,106 @@
+File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0 
+xmax = 2.5245187940283813 
+tiers? <exists> 
+size = 5 
+item []: 
+    item [1]:
+        class = "IntervalTier" 
+        name = "phrase" 
+        xmin = 0 
+        xmax = 2.5245187940283813 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.5245187940283813 
+            text = "Dolores Benitez ha pedido unas dragonas guerreras" 
+    item [2]:
+        class = "IntervalTier" 
+        name = "fricatives" 
+        xmin = 0 
+        xmax = 2.5245187940283813 
+        intervals: size = 7 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.41311288043732475 
+            text = "" 
+        intervals [2]:
+            xmin = 0.41311288043732475 
+            xmax = 0.5078746739887379 
+            text = "b-dolores_benitez-e-sb-e-ato-ext-f-fem-jov" 
+        intervals [3]:
+            xmin = 0.5078746739887379 
+            xmax = 1.694085856795084 
+            text = "" 
+        intervals [4]:
+            xmin = 1.694085856795084 
+            xmax = 1.763520430661174 
+            text = "d-unas_dragonas-a-sdr-a-ato-ext-f-fem-jov" 
+        intervals [5]:
+            xmin = 1.763520430661174 
+            xmax = 2.031339501287505 
+            text = "" 
+        intervals [6]:
+            xmin = 2.031339501287505 
+            xmax = 2.095811142436446 
+            text = "g-dragonas_guerreras-a-sg-e-ato-ext-f-fem-jov" 
+        intervals [7]:
+            xmin = 2.095811142436446 
+            xmax = 2.5245187940283813 
+            text = "" 
+    item [3]:
+        class = "IntervalTier" 
+        name = "approximants" 
+        xmin = 0 
+        xmax = 2.5245187940283813 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.5245187940283813 
+            text = "" 
+    item [4]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.5245187940283813 
+        intervals: size = 7 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.355431788710348 
+            text = "" 
+        intervals [2]:
+            xmin = 0.355431788710348 
+            xmax = 0.4117395211104622 
+            text = "prec-v-sb" 
+        intervals [3]:
+            xmin = 0.4117395211104622 
+            xmax = 1.6471038024658355 
+            text = "" 
+        intervals [4]:
+            xmin = 1.6471038024658355 
+            xmax = 1.7089049721732863 
+            text = "prec-v-sdr" 
+        intervals [5]:
+            xmin = 1.7089049721732863 
+            xmax = 1.9941825522508907 
+            text = "" 
+        intervals [6]:
+            xmin = 1.9941825522508907 
+            xmax = 2.046370206670474 
+            text = "prec-v-sg" 
+        intervals [7]:
+            xmin = 2.046370206670474 
+            xmax = 2.5245187940283813 
+            text = "" 
+    item [5]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.5245187940283813 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.5245187940283813 
+            text = "" 

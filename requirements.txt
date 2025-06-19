@@ -1,0 +1,7 @@
+PyQt6
+textgrid
+pydub
+simpleaudio
+matplotlib
+numpy
+scipy

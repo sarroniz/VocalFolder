@@ -1,0 +1,90 @@
+File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0 
+xmax = 2.796770820835434 
+tiers? <exists> 
+size = 5 
+item []: 
+    item [1]:
+        class = "IntervalTier" 
+        name = "phrase" 
+        xmin = 0 
+        xmax = 2.796770820835434 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.796770820835434 
+            text = "Ines Escobar ha pedido unas duchas desgastadas" 
+    item [2]:
+        class = "IntervalTier" 
+        name = "fricatives" 
+        xmin = 0 
+        xmax = 2.796770820835434 
+        intervals: size = 5 
+        intervals [1]:
+            xmin = 0 
+            xmax = 1.7832170807824923 
+            text = "" 
+        intervals [2]:
+            xmin = 1.7832170807824923 
+            xmax = 1.8569190498091643 
+            text = "d-unas_duchas-a-sd-u-ton-ext-f-fem-jov" 
+        intervals [3]:
+            xmin = 1.8569190498091643 
+            xmax = 2.1877555698498554 
+            text = "" 
+        intervals [4]:
+            xmin = 2.1877555698498554 
+            xmax = 2.2454366615767754 
+            text = "g-desgastadas-e-sg-a-ato-int-f-fem-jov" 
+        intervals [5]:
+            xmin = 2.2454366615767754 
+            xmax = 2.796770820835434 
+            text = "" 
+    item [3]:
+        class = "IntervalTier" 
+        name = "approximants" 
+        xmin = 0 
+        xmax = 2.796770820835434 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.796770820835434 
+            text = "" 
+    item [4]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.796770820835434 
+        intervals: size = 5 
+        intervals [1]:
+            xmin = 0 
+            xmax = 1.7223298357795898 
+            text = "" 
+        intervals [2]:
+            xmin = 1.7223298357795898 
+            xmax = 1.7964912394285193 
+            text = "prec-v-sd" 
+        intervals [3]:
+            xmin = 1.7964912394285193 
+            xmax = 2.128701118796073 
+            text = "" 
+        intervals [4]:
+            xmin = 2.128701118796073 
+            xmax = 2.1877555698498554 
+            text = "prec-v-sg" 
+        intervals [5]:
+            xmin = 2.1877555698498554 
+            xmax = 2.796770820835434 
+            text = "" 
+    item [5]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.796770820835434 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.796770820835434 
+            text = "" 

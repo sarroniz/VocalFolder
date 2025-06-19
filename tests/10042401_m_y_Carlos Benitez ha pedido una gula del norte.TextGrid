@@ -1,0 +1,90 @@
+File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0 
+xmax = 2.425518057007679 
+tiers? <exists> 
+size = 5 
+item []: 
+    item [1]:
+        class = "IntervalTier" 
+        name = "phrase" 
+        xmin = 0 
+        xmax = 2.425518057007679 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.425518057007679 
+            text = "Carlos Benitez ha pedido una gula del norte" 
+    item [2]:
+        class = "IntervalTier" 
+        name = "fricatives" 
+        xmin = 0 
+        xmax = 2.425518057007679 
+        intervals: size = 3 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.3185548763980819 
+            text = "" 
+        intervals [2]:
+            xmin = 0.3185548763980819 
+            xmax = 0.39958307668115367 
+            text = "b-carlos_benitez-o-sb-e-ato-ext-f-fem-jov" 
+        intervals [3]:
+            xmin = 0.39958307668115367 
+            xmax = 2.425518057007679 
+            text = "" 
+    item [3]:
+        class = "IntervalTier" 
+        name = "approximants" 
+        xmin = 0 
+        xmax = 2.425518057007679 
+        intervals: size = 3 
+        intervals [1]:
+            xmin = 0 
+            xmax = 1.5913094806185484 
+            text = "" 
+        intervals [2]:
+            xmin = 1.5913094806185484 
+            xmax = 1.638003697730852 
+            text = "g-una_gula-a-g-u-ton-ext-a-fem-jov" 
+        intervals [3]:
+            xmin = 1.638003697730852 
+            xmax = 2.425518057007679 
+            text = "" 
+    item [4]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.425518057007679 
+        intervals: size = 5 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.27460737793944645 
+            text = "" 
+        intervals [2]:
+            xmin = 0.27460737793944645 
+            xmax = 0.3158081577444136 
+            text = "prec-v-sb" 
+        intervals [3]:
+            xmin = 0.3158081577444136 
+            xmax = 1.5185214362964246 
+            text = "" 
+        intervals [4]:
+            xmin = 1.5185214362964246 
+            xmax = 1.5913094806185484 
+            text = "prec-v-g" 
+        intervals [5]:
+            xmin = 1.5913094806185484 
+            xmax = 2.425518057007679 
+            text = "" 
+    item [5]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.425518057007679 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.425518057007679 
+            text = "" 

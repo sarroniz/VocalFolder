@@ -1,0 +1,106 @@
+File type = "ooTextFile"
+Object class = "TextGrid"
+
+xmin = 0 
+xmax = 2.5987693467939437 
+tiers? <exists> 
+size = 5 
+item []: 
+    item [1]:
+        class = "IntervalTier" 
+        name = "phrase" 
+        xmin = 0 
+        xmax = 2.5987693467939437 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.5987693467939437 
+            text = "Ines Delgado ha pedido unas damas danesas" 
+    item [2]:
+        class = "IntervalTier" 
+        name = "fricatives" 
+        xmin = 0 
+        xmax = 2.5987693467939437 
+        intervals: size = 7 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.3485772172679731 
+            text = "" 
+        intervals [2]:
+            xmin = 0.3485772172679731 
+            xmax = 0.44025468609700624 
+            text = "d-ines_delgado-e-sd-e-ato-ext-a-fem-jov" 
+        intervals [3]:
+            xmin = 0.44025468609700624 
+            xmax = 1.770164699030687 
+            text = "" 
+        intervals [4]:
+            xmin = 1.770164699030687 
+            xmax = 1.8610909267124782 
+            text = "d-unas_damas-a-sd-a-ton-ext-f-fem-jov" 
+        intervals [5]:
+            xmin = 1.8610909267124782 
+            xmax = 2.0264113406793456 
+            text = "" 
+        intervals [6]:
+            xmin = 2.0264113406793456 
+            xmax = 2.0925395062660925 
+            text = "d-damas_danesas-a-sd-a-ato-ext-f-fem-jov" 
+        intervals [7]:
+            xmin = 2.0925395062660925 
+            xmax = 2.5987693467939437 
+            text = "" 
+    item [3]:
+        class = "IntervalTier" 
+        name = "approximants" 
+        xmin = 0 
+        xmax = 2.5987693467939437 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.5987693467939437 
+            text = "" 
+    item [4]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.5987693467939437 
+        intervals: size = 7 
+        intervals [1]:
+            xmin = 0 
+            xmax = 0.28081560987257603 
+            text = "" 
+        intervals [2]:
+            xmin = 0.28081560987257603 
+            xmax = 0.3465842288151464 
+            text = "prec-v-sd" 
+        intervals [3]:
+            xmin = 0.3465842288151464 
+            xmax = 1.7146143327139782 
+            text = "" 
+        intervals [4]:
+            xmin = 1.7146143327139782 
+            xmax = 1.7783899632037503 
+            text = "prec-v-sd" 
+        intervals [5]:
+            xmin = 1.7783899632037503 
+            xmax = 1.9756224940742868 
+            text = "" 
+        intervals [6]:
+            xmin = 1.9756224940742868 
+            xmax = 2.043457427426887 
+            text = "prec-v-sd" 
+        intervals [7]:
+            xmin = 2.043457427426887 
+            xmax = 2.5987693467939437 
+            text = "" 
+    item [5]:
+        class = "IntervalTier" 
+        name = "" 
+        xmin = 0 
+        xmax = 2.5987693467939437 
+        intervals: size = 1 
+        intervals [1]:
+            xmin = 0 
+            xmax = 2.5987693467939437 
+            text = "" 
