@@ -1,53 +1,52 @@
 # Vocal Folder
 
-**Vocal Folder** is a dynamic annotation browser and audio segmentation toolkit for phonetic research. It allows you to load `.wav` + `.TextGrid` pairs, browse annotations, view waveforms, and play back segments directly from the UI — all without scripting.
+**Vocal Folder** is a dynamic annotation browser and audio segmentation toolkit for phonetic research. It allows you to load `.wav` + `.TextGrid` pairs, browse annotations, view waveforms, extract features, and play back segments — all without scripting.
 
 ---
 
-## ✅ Features (Stable MVP)
+## ✅ Features (Implemented)
 
-- [x] **Folder Loader**: parse `.wav` + `.TextGrid` file pairs
-- [x] **Smart Path Display**: working directory shown and shortened in header
-- [x] **Dynamic Tier Selection**: automatically adapts to tier names in your files
-- [x] **Interval Table**: displays `File`, `Label`, `Start`, `End`, `Duration`
-- [x] **Waveform Viewer**: full and zoomed segment views
-- [x] **Click-to-Action**:
-  - Click “File” → shows entire waveform
-  - Click “Label” → zooms in and allows segment playback
-  - Click any other column → zooms into that segment
-- [x] **Tab-to-Play**: press `Tab` to replay selected segment
-- [x] **Playback Management**: no overlapping playback
+- [x] **Folder Loader**: parses `.wav` + `.TextGrid` file pairs
+- [x] **Smart Path Display**: shows working directory path (shortened in header)
+- [x] **Tier Selection**: dynamically lists tiers available in loaded files
+- [x] **Annotation Table**: displays `File`, `Label`, `Start`, `End`, `Duration`
+- [x] **Waveform Viewer**: shows full waveform and zoomed segments
+- [x] **Interactive Navigation**:
+  - Click “File” → full waveform
+  - Click “Label” or other columns → zoom to segment and enable playback
+  - `Tab` key → plays currently selected segment
 - [x] **Structured Label Parsing**:
-  - Automatically detects `-`-separated label structures (e.g. `b-una_burra-a-fem-ton-ext`)
-  - Presents variable components (`Var1`, `Var2`, ...) in a dedicated sidebar
-  - User can toggle visibility via checkboxes
-  - Column headers are editable (e.g. rename `Var1` to `Context`)
-- [x] **Visual Editing Mode**:
-  - Enable/disable editable table cells
-  - Modified cells are highlighted
-  - Editing filename triggers rename of `.wav` + `.TextGrid` pair
-  - Save prompt before closing modified session
-- [x] **Feature Selector**: toggle display of acoustic features:
-  - Duration
-  - Intensity at midpoint
-  - Zero Crossing Rate (ZCR)
-  - Spectral Centroid
-- [x] **Acoustic feature computation**: runs on-demand per visible row
-- [x] **Column Filtering**: Excel-style dropdown filters for variable columns
+  - Automatically splits hyphenated labels (e.g. `b-una_burra-a-fem`)
+  - Displays `Var1`, `Var2`, etc. as toggleable columns
+  - Variable headers are editable (e.g. rename `Var2` to `Gender`)
+- [x] **Feature Selector**:
+  - Choose which acoustic features to display:
+    - Duration
+    - Midpoint Intensity (via Praat/Parselmouth)
+    - Zero-Crossing Rate (ZCR)
+    - Spectral Centroid (via Librosa)
+- [x] **Filter System**:
+  - Excel-style dropdown filters for any visible variable column
+  - Filter status reflected in header (🔽 / 🔽 filtered)
+- [x] **Editable Table Mode**:
+  - Toggle cell editing on/off
+  - Visual highlight of unsaved edits (light yellow)
+  - Auto-save edits to `.TextGrid`
+  - If filename is edited, renames both `.wav` and `.TextGrid` to match
+- [x] **CSV Export**: saves current table (including edits and selected columns) to CSV
 
 ---
 
-## 🧭 Roadmap
+## 🔧 In Progress / Upcoming
 
-- [ ] Waveform overlays for full tiers and annotations
-- [ ] Additional acoustic features (e.g., F1, F2, spectral tilt)
-- [ ] Batch processing and caching of acoustic measures
-- [ ] Advanced filtering (e.g., duration thresholds, logical operators)
-- [ ] Export only visible/filtered rows to CSV
-- [ ] Undo/redo per-cell history
-- [ ] Preferences panel (e.g., playback speed, feature settings)
-- [ ] Tagging system (mark segments as validated, ambiguous, etc.)
-- [ ] Dark mode UI toggle
+- [ ] Waveform overlays for all intervals in selected tier
+- [ ] Additional acoustic features: F1/F2, spectral tilt, intensity range
+- [ ] Batch processing and caching of feature extraction
+- [ ] Export filtered rows only
+- [ ] Undo/redo history per cell
+- [ ] User preferences (e.g., default tier, filter persistence, playback settings)
+- [ ] Visual tagging (e.g., mark intervals as good/bad/ambiguous)
+- [ ] Dark mode support
 
 ---
 
@@ -63,11 +62,10 @@
 
 - Python 3.10+
 - PyQt6
-- `librosa` (for spectral analysis)
-- `parselmouth` (for Praat-compatible intensity and pitch analysis)
-- `matplotlib` (for waveform rendering)
-- `textgrid` (or `praatio`) for annotation parsing
-- `numpy`, `scipy`
+- [`parselmouth`](https://parselmouth.readthedocs.io/) for intensity extraction
+- [`librosa`](https://librosa.org/) for spectral features
+- [`textgrid`](https://pypi.org/project/textgrid/) for annotation parsing
+- `numpy`, `scipy`, `matplotlib`
 
 ---
 
