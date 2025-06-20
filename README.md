@@ -4,39 +4,50 @@
 
 ---
 
-## ✅ Features (MVP Complete)
+## ✅ Features (Stable MVP)
 
-- [x] Folder loader: parse `.wav` + `.TextGrid` file pairs
-- [x] Display selected working directory in header
-- [x] Dynamic tier selection (adapts to user project)
-- [x] Table view of intervals: File, Label, Start, End, Duration
-- [x] Smart detection of structured labels (e.g. `b-una_burra-a-b-u-ton-ext-f-fem-jov`)
-  - Optional parsing of label into variable columns
-  - Header names are editable (e.g. `var1`, `var2` → `place`, `gender`, etc.)
-- [x] Waveform viewer with segment zoom
-- [x] Click-to-select behavior:
-  - Click “File”: shows full waveform
-  - Click “Label”: shows full waveform, plays segment on waveform click
-  - Click anywhere else: zooms into selected segment
-- [x] Playback integration: prevents overlapping playback
-- [x] Tab key triggers playback for selected segment
-- [x] Tier-aware segment editing
-  - Edits tracked visually (light yellow)
-  - Option to rename `.wav` + `.TextGrid` if filename is changed
-  - Save prompt before closing
+- [x] **Folder Loader**: parse `.wav` + `.TextGrid` file pairs
+- [x] **Smart Path Display**: working directory shown and shortened in header
+- [x] **Dynamic Tier Selection**: automatically adapts to tier names in your files
+- [x] **Interval Table**: displays `File`, `Label`, `Start`, `End`, `Duration`
+- [x] **Waveform Viewer**: full and zoomed segment views
+- [x] **Click-to-Action**:
+  - Click “File” → shows entire waveform
+  - Click “Label” → zooms in and allows segment playback
+  - Click any other column → zooms into that segment
+- [x] **Tab-to-Play**: press `Tab` to replay selected segment
+- [x] **Playback Management**: no overlapping playback
+- [x] **Structured Label Parsing**:
+  - Automatically detects `-`-separated label structures (e.g. `b-una_burra-a-fem-ton-ext`)
+  - Presents variable components (`Var1`, `Var2`, ...) in a dedicated sidebar
+  - User can toggle visibility via checkboxes
+  - Column headers are editable (e.g. rename `Var1` to `Context`)
+- [x] **Visual Editing Mode**:
+  - Enable/disable editable table cells
+  - Modified cells are highlighted
+  - Editing filename triggers rename of `.wav` + `.TextGrid` pair
+  - Save prompt before closing modified session
+- [x] **Feature Selector**: toggle display of acoustic features:
+  - Duration
+  - Intensity at midpoint
+  - Zero Crossing Rate (ZCR)
+  - Spectral Centroid
+- [x] **Acoustic feature computation**: runs on-demand per visible row
+- [x] **Column Filtering**: Excel-style dropdown filters for variable columns
 
 ---
 
 ## 🧭 Roadmap
 
-- [ ] Waveform overlays for labeled intervals
-- [ ] Filtering by label type, variable, or duration
-- [ ] Acoustic feature extraction: duration, intensity, F1, F2, ZCR, tilt
-- [ ] CSV export of filtered intervals and features
-- [ ] Spectrogram overlay toggle
-- [ ] Undo/redo support and per-cell history
-- [ ] Preferences panel (e.g., default tier, playback speed, export config)
-- [ ] File renaming rules based on metadata
+- [ ] Waveform overlays for full tiers and annotations
+- [ ] Additional acoustic features (e.g., F1, F2, spectral tilt)
+- [ ] Batch processing and caching of acoustic measures
+- [ ] Advanced filtering (e.g., duration thresholds, logical operators)
+- [ ] Export only visible/filtered rows to CSV
+- [ ] Undo/redo per-cell history
+- [ ] Preferences panel (e.g., playback speed, feature settings)
+- [ ] Tagging system (mark segments as validated, ambiguous, etc.)
+- [ ] Dark mode UI toggle
 
 ---
 
@@ -52,10 +63,11 @@
 
 - Python 3.10+
 - PyQt6
-- matplotlib (for waveform rendering)
-- scipy / numpy
-- [textgrid](https://pypi.org/project/textgrid/) or [praatio](https://github.com/timmahrt/praatIO) for parsing
-- [parselmouth](https://parselmouth.readthedocs.io/) (optional for acoustic features)
+- `librosa` (for spectral analysis)
+- `parselmouth` (for Praat-compatible intensity and pitch analysis)
+- `matplotlib` (for waveform rendering)
+- `textgrid` (or `praatio`) for annotation parsing
+- `numpy`, `scipy`
 
 ---
 
