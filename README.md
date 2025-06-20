@@ -1,6 +1,6 @@
 # Vocal Folder
 
-**Vocal Folder** is a dynamic annotation browser and audio segmentation toolkit for phonetic research. It allows you to load `.wav` + `.TextGrid` pairs, browse annotations, view waveforms, extract features, and play back segments — all without scripting.
+**Vocal Folder** is an interactive annotation explorer and audio segmentation toolkit tailored for phonetic and speech research. It enables researchers to load `.wav` and `.TextGrid` files in bulk, browse and edit annotations across multiple tiers, and visualize waveforms with segment-level zoom — all from a single unified interface. The app supports structured label parsing, customizable column views, and real-time audio playback of annotated segments. Users can extract acoustic features such as duration, intensity, zero-crossing rate, and spectral centroid without writing any code. Whether you’re auditing annotations, preparing data for analysis, or exploring phonetic patterns, Vocal Folder streamlines the workflow and eliminates the need for manual Praat scripting.
 
 ---
 
@@ -34,6 +34,7 @@
   - Auto-save edits to `.TextGrid`
   - If filename is edited, renames both `.wav` and `.TextGrid` to match
 - [x] **CSV Export**: saves current table (including edits and selected columns) to CSV
+    -[x] Export filtered rows only
 
 ---
 
@@ -42,11 +43,9 @@
 - [ ] Waveform overlays for all intervals in selected tier
 - [ ] Additional acoustic features: F1/F2, spectral tilt, intensity range
 - [ ] Batch processing and caching of feature extraction
-- [ ] Export filtered rows only
 - [ ] Undo/redo history per cell
 - [ ] User preferences (e.g., default tier, filter persistence, playback settings)
-- [ ] Visual tagging (e.g., mark intervals as good/bad/ambiguous)
-- [ ] Dark mode support
+- [ ] Visual tagging (e.g., mark intervals as good/bad/ambiguous/etc.)
 
 ---
 
