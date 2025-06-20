@@ -3,19 +3,19 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QPushButton, QComboBox, QVBoxLayout,
     QHBoxLayout, QLabel, QFileDialog, QTableWidget, QTableWidgetItem,
     QMenuBar, QMenu, QCheckBox, QMessageBox, QInputDialog, QSizePolicy,
-    QHeaderView, QToolButton
+    QHeaderView, QToolButton, QSplitter, QListWidget, QListWidgetItem
 )
-
+import numpy as np
+import parselmouth
+import librosa
 from PyQt6.QtGui import (QKeyEvent, QAction, QColor)
 from PyQt6.QtCore import (Qt, QPoint)
-
 from app.core.file_loader import load_file_pairs
 from app.core.textgrid_parser import extract_intervals
 from textgrid import TextGrid
-
 from app.core.audio_player import play_segment
-
 from app.gui.waveform_viewer import WaveformViewer
+
 
 def shorten_path(path: str, max_chars: int = 60) -> str:
     if len(path) <= max_chars:
@@ -23,9 +23,87 @@ def shorten_path(path: str, max_chars: int = 60) -> str:
     else:
         return f"{path[:25]}…{path[-30:]}"
     
+def compute_mean_intensity(wav_path, start_time, end_time):
+    try:
+        print(f"🔍 Computing intensity: {os.path.basename(wav_path)} [{start_time}-{end_time}]")
+        snd = parselmouth.Sound(wav_path)
+        segment = snd.extract_part(from_time=start_time, to_time=end_time, preserve_times=True)
+        intensity = segment.to_intensity()
+        valid_vals = intensity.values[intensity.values > 0]
+        if valid_vals.size == 0:
+            print("⚠️ No positive intensity values.")
+            return None
+        mean_db = valid_vals.mean()
+        print(f"✅ Mean dB: {mean_db}")
+        return round(mean_db, 2)
+    except Exception as e:
+        print(f"❌ Error computing intensity: {e}")
+        return None
+
+def compute_zcr(wav_path, start_time, end_time):
+    try:
+        snd = parselmouth.Sound(wav_path)
+        segment = snd.extract_part(from_time=start_time, to_time=end_time, preserve_times=False)
+        samples = segment.values[0]  # mono
+
+        if len(samples) < 2:
+            return None
+
+        zero_crossings = np.where(np.diff(np.signbit(samples)))[0]
+        duration = segment.duration
+
+        if duration == 0:
+            return None
+
+        zcr = len(zero_crossings) / duration
+        print(f"🔍 ZCR: {zcr:.2f}")
+        return round(zcr, 2)
+    except Exception as e:
+        print(f"❌ Error computing ZCR: {e}")
+        return None
+
+def compute_intensity_at_midpoint(wav_path, start_time, end_time):
+    try:
+        midpoint = (start_time + end_time) / 2
+        snd = parselmouth.Sound(wav_path)
+
+        # Puedes ajustar estos valores si lo deseas
+        pitch_floor = 75  # typical for adult male speakers
+        time_step = 0.01  # smaller for finer analysis
+
+        intensity = snd.to_intensity(time_step=time_step, minimum_pitch=pitch_floor)
+        intensity_value = intensity.get_value(time=midpoint)
+
+        if intensity_value is None or intensity_value <= 0:
+            print(f"⚠️ No valid intensity at midpoint ({midpoint}s)")
+            return None
+
+        print(f"🔍 Intensity at midpoint: {intensity_value:.2f} dB")
+        return round(intensity_value, 2)
+
+    except Exception as e:
+        print(f"❌ Error computing midpoint intensity: {e}")
+        return None
+    
+
+def compute_spectral_centroid(wav_path, start, end):
+    try:
+        y, sr = librosa.load(wav_path, sr=None, offset=start, duration=end - start)
+        centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
+        if centroid.size > 0:
+            return round(np.mean(centroid), 2)
+    except Exception as e:
+        print(f"❌ Error computing spectral centroid for {wav_path} [{start}-{end}]: {e}")
+    return None
+    
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        # Available features for the table
+        # These are the features that can be computed and displayed in the table
+        self.available_features = ["Duration", "Mid Intensity", "ZCR", "Spectral Centroid"]
+        self.selected_features = set()  # Start with no features selected
+
         self.variable_column_indices = []
         self.active_filters = {}
 
@@ -55,10 +133,29 @@ class MainWindow(QMainWindow):
         self.modified_cells = set()
 
         self.waveform_viewer = WaveformViewer()
+        self.feature_selector = QListWidget()
+        self.feature_selector.setMaximumWidth(200)
+        self.feature_selector.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+
+        self.variable_viewer = QListWidget()
+        self.variable_viewer.setMaximumWidth(200)
+        self.variable_viewer.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self.variable_viewer.setDisabled(True)
+        self.variable_viewer.addItem("🔍 No variables detected")
+
+        for feat in self.available_features:
+            item = QListWidgetItem(feat)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            self.feature_selector.addItem(item)
+
+        self.feature_selector.itemChanged.connect(self.update_visible_features)
         self.waveform_viewer.waveformClicked.connect(self.play_from_waveform)
 
         self.load_button.clicked.connect(self.load_folder)
-        self.tier_dropdown.currentIndexChanged.connect(self.refresh_table)
+        self.tier_dropdown.currentIndexChanged.connect(self.on_tier_changed)
+        self._need_to_rebuild_vars = True
+        self.refresh_table()
         self.table.cellClicked.connect(self.on_table_select)
         self.table.currentCellChanged.connect(self.on_table_select)
         self.table.installEventFilter(self)
@@ -101,16 +198,47 @@ class MainWindow(QMainWindow):
         top_layout.addLayout(top_row1)
         top_layout.addLayout(top_row2)
 
-        layout = QVBoxLayout()
-        layout.addLayout(top_layout)
-        layout.addWidget(self.table)
-        layout.addWidget(self.waveform_viewer)
+        # Left panel (table + waveform viewer)
+        left_panel = QWidget()
+        left_layout = QVBoxLayout()
+        left_layout.addLayout(top_layout)
+        left_layout.addWidget(self.table)
+        left_layout.addWidget(self.waveform_viewer)
+        left_panel.setLayout(left_layout)
 
-        container = QWidget()
-        container.setLayout(layout)
-        self.setCentralWidget(container)
+        # Right panel (feature selector + variable viewer)
+        right_panel = QWidget()
+        right_layout = QVBoxLayout()
+        right_layout.addWidget(QLabel("Show Features:"))
+        right_layout.addWidget(self.feature_selector)
 
+        right_layout.addWidget(self.variable_viewer)
+
+        right_layout.addStretch()
+        right_panel.setLayout(right_layout)
+
+        # Splitter
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([800, 200])
+
+        self.setCentralWidget(splitter)
+
+        self.variable_viewer.itemDoubleClicked.connect(self.rename_variable_column)
+        self._need_to_rebuild_vars = True
         self._create_menus()
+
+        self.resize(1200, 800)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.resize(1600, 900)
+
+    def on_tier_changed(self):
+        # next refresh_table() will rebuild the Var… list
+        self._need_to_rebuild_vars = True
+        self.refresh_table()
 
     def _create_menus(self):
         menubar = self.menuBar()
@@ -132,6 +260,46 @@ class MainWindow(QMainWindow):
         edit_menu.addSeparator()
         edit_menu.addAction(copy_action)
         edit_menu.addAction(paste_action)
+
+        # Export menu
+        file_menu = menubar.addMenu("File")
+        export_action = QAction("Export Table to CSV…", self)
+        export_action.triggered.connect(self.export_table_to_csv)
+        file_menu.addAction(export_action)
+
+    def update_visible_features(self):
+        self.selected_features = set()
+        for i in range(self.feature_selector.count()):
+            item = self.feature_selector.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                self.selected_features.add(item.text())
+
+        self.refresh_table()  # Re-render table with updated visible columns
+
+    def build_variable_list(self):
+        # block signals so we don’t immediately retrigger refresh_table()
+        self.variable_viewer.blockSignals(True)
+        self.variable_viewer.clear()
+
+        if self.split_labels:
+            max_parts = max(row[1].count("-") + 1 for row in self.tier_intervals)
+            self.variable_viewer.setDisabled(False)
+            for i in range(max_parts):
+                item = QListWidgetItem(f"Var{i+1}")
+                item.setFlags(
+                    Qt.ItemFlag.ItemIsEnabled |
+                    Qt.ItemFlag.ItemIsUserCheckable |
+                    Qt.ItemFlag.ItemIsSelectable
+                )
+                item.setCheckState(Qt.CheckState.Unchecked)
+                self.variable_viewer.addItem(item)
+        else:
+            self.variable_viewer.addItem("🔍 No variables detected")
+            self.variable_viewer.setDisabled(True)
+
+        self.variable_viewer.blockSignals(False)
+        # now connect its signal so clicking a var triggers refresh_table()
+        self.variable_viewer.itemChanged.connect(self.refresh_table)
 
     def load_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
@@ -160,6 +328,7 @@ class MainWindow(QMainWindow):
         common_tiers = sorted(set.union(*tier_name_sets))
         self.tier_dropdown.clear()
         self.tier_dropdown.addItems(common_tiers)
+        self.on_tier_changed() 
 
     def refresh_table(self):
         if not self.file_pairs:
@@ -168,7 +337,7 @@ class MainWindow(QMainWindow):
         selected_tier = self.tier_dropdown.currentText()
         self.tier_intervals = []
 
-        label_has_dash = False  # Detectar etiquetas con guiones
+        label_has_dash = False
 
         for name, wav_path, tg_path in self.file_pairs:
             try:
@@ -190,32 +359,29 @@ class MainWindow(QMainWindow):
         if not self.tier_intervals:
             print(f"⚠️ No intervals found for tier: '{selected_tier}'")
 
-        # Preguntar si se quiere dividir en columnas adicionales
-        self.split_labels = False
-        if label_has_dash:
-            reply = QMessageBox.question(
-                self,
-                "Etiquetas con guiones detectadas",
-                "Se han detectado posibles variables en las etiquetas (p. ej. 'b-una_burra-a-b-u-ton-ext-f-fem-jov').\n\n¿Quieres dividirlas en columnas separadas?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self.split_labels = True
+        # Decide whether to split variables automatically
+        self.split_labels = label_has_dash
 
-        # 🛑 Desconectar para evitar disparos falsos
+        # only rebuild Var… checkboxes when the tier selection actually changes
+        if self._need_to_rebuild_vars:
+            self.build_variable_list()
+            self._need_to_rebuild_vars = False
+
         try:
             self.table.itemChanged.disconnect(self.mark_as_modified)
         except Exception:
             pass
 
-        # Construir encabezados
-        base_headers = ["File", "Label"]
-        feature_headers = ["Duration"]
+        base_headers = ["File", "Interval"]
+        feature_headers = [f for f in self.available_features if f in self.selected_features]
         variable_headers = []
 
         if self.split_labels:
-            max_parts = max(row[1].count("-") + 1 for row in self.tier_intervals)
-            variable_headers = [f"Var{i+1}" for i in range(max_parts)]
+            variable_headers = [
+                self.variable_viewer.item(i).text()
+                for i in range(self.variable_viewer.count())
+                if self.variable_viewer.item(i).checkState() == Qt.CheckState.Checked
+            ]
 
         headers = base_headers + variable_headers + feature_headers
         self.table.setColumnCount(len(headers))
@@ -224,32 +390,53 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setMinimumSectionSize(30)
 
         for i, row in enumerate(self.tier_intervals):
-            self.table.setItem(i, 0, QTableWidgetItem(str(row[0])))  # File
-            self.table.setItem(i, 1, QTableWidgetItem(str(row[1])))  # Label
+            name, label, start, end, duration = row
+            wav_path = self._get_wav_path(name)
+
+            self.table.setItem(i, 0, QTableWidgetItem(name))   # File
+            self.table.setItem(i, 1, QTableWidgetItem(label))  # Label
 
             offset = 2
             if self.split_labels:
-                parts = row[1].split("-")
+                parts = label.split("-")
                 for k, part in enumerate(parts):
-                    self.table.setItem(i, offset + k, QTableWidgetItem(part))
-                offset += len(variable_headers)
+                    variable_item = self.variable_viewer.item(k)
+                    if variable_item and variable_item.checkState() == Qt.CheckState.Checked:
+                        self.table.setItem(i, offset, QTableWidgetItem(part))
+                        offset += 1
 
-            self.table.setItem(i, offset, QTableWidgetItem(str(row[4])))  # Duration
 
-            if self.split_labels:
-                var_start_idx = 2
-                var_end_idx = var_start_idx + len(variable_headers)
+            feature_index = 0
+            for feature in self.available_features:
+                if feature not in self.selected_features:
+                    continue
+
+                if feature == "Duration":
+                    value = duration
+
+                elif feature == "Mid Intensity":
+                    value = compute_intensity_at_midpoint(wav_path, start, end)
+
+                elif feature == "ZCR":
+                    value = compute_zcr(wav_path, start, end)
+
+                elif feature == "Spectral Centroid":
+                    value = compute_spectral_centroid(wav_path, start, end)
+
+                else:
+                    value = ""
+
+                item = QTableWidgetItem(str(value) if value is not None else "")
+                self.table.setItem(i, offset + feature_index, item)
+                feature_index += 1
 
         self.modified_cells.clear()
         self.table.itemChanged.connect(self.mark_as_modified)
 
-        self.variable_column_indices = []
-        if self.split_labels:
-            base_offset = 2  # File + Label
-            for i in range(len(variable_headers)):
-                col_index = base_offset + i
-                self.variable_column_indices.append(col_index)
+        # Update variable column indices
+        self.update_variable_column_indices()
 
+        if self.variable_column_indices:
             self.add_filter_buttons_to_headers(
                 min(self.variable_column_indices),
                 max(self.variable_column_indices) + 1
@@ -282,7 +469,7 @@ class MainWindow(QMainWindow):
                 self.waveform_viewer.plot_waveform(wav_path, start=start_time, end=end_time, zoom=False)
                 self.selected_segment_info = (wav_path, 0, None)
 
-            elif header == "Label":
+            elif header == "Interval":
                 print(f"👆 Selected segment (Label click): {file_name} [{start_time:.2f}s - {end_time:.2f}s]")
                 self.waveform_viewer.plot_waveform(wav_path, start=start_time, end=end_time, zoom=True)
                 self.selected_segment_info = (wav_path, start_time, end_time)
@@ -350,6 +537,19 @@ class MainWindow(QMainWindow):
         header = self.table.horizontalHeader()
         header.sectionClicked.connect(self.show_filter_menu)
 
+    def update_variable_column_indices(self):
+        self.variable_column_indices = []
+        headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
+        for i, header in enumerate(headers):
+            if header.startswith("Var"):
+                self.variable_column_indices.append(i)
+
+    def _get_wav_path(self, file_name):
+        for name, wav, _ in self.file_pairs:
+            if name == file_name:
+                return wav
+        return None
+
     def _apply_column_filter(self, col, value, checked):
         if col not in self.active_filters:
             self.active_filters[col] = set()
@@ -364,6 +564,14 @@ class MainWindow(QMainWindow):
             item = self.table.item(row, col)
             if item:
                 self.table.setRowHidden(row, item.text() not in allowed_values)
+
+        # Cambia el nombre del header si hay filtro activo
+        header_item = self.table.horizontalHeaderItem(col)
+        base_text = header_item.text().replace(" 🔽", "").replace(" 🔽 (filtered)", "")
+        if len(self.active_filters[col]) < len(set(self.table.item(r, col).text() for r in range(self.table.rowCount()) if self.table.item(r, col))):
+            header_item.setText(f"{base_text} 🔽 (filtered)")
+        else:
+            header_item.setText(f"{base_text} 🔽")
 
     def play_from_waveform(self):
         try:
@@ -426,7 +634,7 @@ class MainWindow(QMainWindow):
 
     def save_table_edits(self):
         headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
-        var_start = headers.index("Label") + 1
+        var_start = headers.index("Interval") + 1
         var_end = headers.index("Start") if "Start" in headers else len(headers)
 
         for row, column in self.modified_cells:
@@ -487,4 +695,44 @@ class MainWindow(QMainWindow):
             new_name, ok = QInputDialog.getText(self, "Renombrar columna", f"Nuevo nombre para '{current_name}':")
             if ok and new_name.strip():
                 self.table.setHorizontalHeaderItem(logical_index, QTableWidgetItem(new_name.strip()))
+
+    def export_table_to_csv(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save CSV", "", "CSV Files (*.csv)")
+        if not path:
+            return
+
+        try:
+            headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
+
+            with open(path, "w", encoding="utf-8") as f:
+                # Write headers
+                f.write(",".join(headers) + "\n")
+
+                # Write rows
+                for row in range(self.table.rowCount()):
+                    row_data = []
+                    for col in range(self.table.columnCount()):
+                        item = self.table.item(row, col)
+                        value = item.text() if item else ""
+                        value = value.replace(",", " ")  # avoid breaking CSV
+                        row_data.append(value)
+                    f.write(",".join(row_data) + "\n")
+
+            QMessageBox.information(self, "Export Successful", f"Table exported successfully to:\n{path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"❌ Error exporting CSV:\n\n{e}")
+
+    def rename_variable_column(self, item):
+        old_name = item.text()
+        new_name, ok = QInputDialog.getText(self, "Rename Variable", f"Rename '{old_name}' to:")
+        if ok and new_name.strip():
+            item.setText(new_name.strip())
+
+            # Actualiza también los headers si ya están en la tabla
+            headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
+            if old_name in headers:
+                col_idx = headers.index(old_name)
+                self.table.setHorizontalHeaderItem(col_idx, QTableWidgetItem(new_name.strip()))
+
 

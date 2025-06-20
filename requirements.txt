@@ -5,3 +5,5 @@ simpleaudio
 matplotlib
 numpy
 scipy
+praat-parselmouth==0.4.3
+librosa
