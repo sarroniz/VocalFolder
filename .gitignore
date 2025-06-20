@@ -42,9 +42,6 @@ setup.cfg
 *.csv~
 *.json~
 
-# ---- Optional: Ignore screenshots or outputs ----
-assets/screenshots/
-
 # ---- VS Code Python debugger files ----
 .vscode/
 
