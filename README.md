@@ -34,7 +34,7 @@
   - Auto-save edits to `.TextGrid`
   - If filename is edited, renames both `.wav` and `.TextGrid` to match
 - [x] **CSV Export**: saves current table (including edits and selected columns) to CSV
-    -[x] Export filtered rows only
+    - [x] Export filtered rows only
 
 ---
 
