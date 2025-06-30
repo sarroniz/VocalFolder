@@ -3,19 +3,28 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QPushButton, QComboBox, QVBoxLayout,
     QHBoxLayout, QLabel, QFileDialog, QTableWidget, QTableWidgetItem,
     QMenuBar, QMenu, QCheckBox, QMessageBox, QInputDialog, QSizePolicy,
-    QHeaderView, QToolButton, QSplitter, QListWidget, QListWidgetItem
+    QHeaderView, QToolButton, QSplitter, QListWidget, QListWidgetItem,
+    QApplication, QFileDialog
 )
 import numpy as np
+import json
 import parselmouth
 import librosa
 from PyQt6.QtGui import (QKeyEvent, QAction, QColor)
-from PyQt6.QtCore import (Qt, QPoint)
+from PyQt6.QtCore import (Qt, QPoint, QTimer)
 from app.core.file_loader import load_file_pairs
 from app.core.textgrid_parser import extract_intervals
 from textgrid import TextGrid
 from app.core.audio_player import play_segment
 from app.gui.waveform_viewer import WaveformViewer
-
+from PyQt6.QtGui import QIcon
+from app.core.feature_extractor import compute_feature_value
+from app.utils.filters import (
+    get_unique_values_for_column,
+    create_filter_menu,
+    show_menu_near_column
+)
+from app.utils.external_tools import launch_praat
 
 def shorten_path(path: str, max_chars: int = 60) -> str:
     if len(path) <= max_chars:
@@ -23,89 +32,42 @@ def shorten_path(path: str, max_chars: int = 60) -> str:
     else:
         return f"{path[:25]}…{path[-30:]}"
     
-def compute_mean_intensity(wav_path, start_time, end_time):
-    try:
-        print(f"🔍 Computing intensity: {os.path.basename(wav_path)} [{start_time}-{end_time}]")
-        snd = parselmouth.Sound(wav_path)
-        segment = snd.extract_part(from_time=start_time, to_time=end_time, preserve_times=True)
-        intensity = segment.to_intensity()
-        valid_vals = intensity.values[intensity.values > 0]
-        if valid_vals.size == 0:
-            print("⚠️ No positive intensity values.")
+
+def safe_table_operation(func):
+    """Decorator for safe table operations"""
+    def wrapper(self, *args, **kwargs):
+        try:
+            if hasattr(self, 'table') and self.table.rowCount() > 0:
+                return func(self, *args, **kwargs)
+        except Exception as e:
+            print(f"Safe table operation failed: {e}")
             return None
-        mean_db = valid_vals.mean()
-        print(f"✅ Mean dB: {mean_db}")
-        return round(mean_db, 2)
-    except Exception as e:
-        print(f"❌ Error computing intensity: {e}")
-        return None
+    return wrapper
 
-def compute_zcr(wav_path, start_time, end_time):
-    try:
-        snd = parselmouth.Sound(wav_path)
-        segment = snd.extract_part(from_time=start_time, to_time=end_time, preserve_times=False)
-        samples = segment.values[0]  # mono
 
-        if len(samples) < 2:
-            return None
-
-        zero_crossings = np.where(np.diff(np.signbit(samples)))[0]
-        duration = segment.duration
-
-        if duration == 0:
-            return None
-
-        zcr = len(zero_crossings) / duration
-        print(f"🔍 ZCR: {zcr:.2f}")
-        return round(zcr, 2)
-    except Exception as e:
-        print(f"❌ Error computing ZCR: {e}")
-        return None
-
-def compute_intensity_at_midpoint(wav_path, start_time, end_time):
-    try:
-        midpoint = (start_time + end_time) / 2
-        snd = parselmouth.Sound(wav_path)
-
-        # Puedes ajustar estos valores si lo deseas
-        pitch_floor = 75  # typical for adult male speakers
-        time_step = 0.01  # smaller for finer analysis
-
-        intensity = snd.to_intensity(time_step=time_step, minimum_pitch=pitch_floor)
-        intensity_value = intensity.get_value(time=midpoint)
-
-        if intensity_value is None or intensity_value <= 0:
-            print(f"⚠️ No valid intensity at midpoint ({midpoint}s)")
-            return None
-
-        print(f"🔍 Intensity at midpoint: {intensity_value:.2f} dB")
-        return round(intensity_value, 2)
-
-    except Exception as e:
-        print(f"❌ Error computing midpoint intensity: {e}")
-        return None
-    
-
-def compute_spectral_centroid(wav_path, start, end):
-    try:
-        y, sr = librosa.load(wav_path, sr=None, offset=start, duration=end - start)
-        centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
-        if centroid.size > 0:
-            return round(np.mean(centroid), 2)
-    except Exception as e:
-        print(f"❌ Error computing spectral centroid for {wav_path} [{start}-{end}]: {e}")
-    return None
-    
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        base_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), '..', '..')
+        )
+        icon_path = os.path.join(base_dir, 'assets', 'icons', 'vocalfolder_icon.png')
+
+        self.setWindowIcon(QIcon(icon_path))
+
         # Available features for the table
-        # These are the features that can be computed and displayed in the table
         self.available_features = ["Duration", "Mid Intensity", "ZCR", "Spectral Centroid"]
-        self.selected_features = set()  # Start with no features selected
+        self.selected_features = set()
 
         self.variable_column_indices = []
         self.active_filters = {}
+        
+        # Improved filtering system
+        self.filter_update_timer = None
+        self.is_filtering = False
+        self.cached_unique_values = {}
+        self._active_filter_menu = None
+        self.filter_debounce_delay = 200  # ms delay for filter updates
 
         self.setWindowTitle("Vocal Folder (beta)")
 
@@ -161,16 +123,22 @@ class MainWindow(QMainWindow):
         self.table.installEventFilter(self)
         self.table.horizontalHeader().sectionClicked.connect(self.show_filter_menu)
 
-
         self.toggle_table_editing(0)
 
         self.current_playback = None
-        self.selected_segment_info = None  # (wav_path, start_time, end_time)
+        self.selected_segment_info = None
 
-        # -------------------------
         # UI Layout
-        # -------------------------
+        self._setup_ui()
+        self._create_menus()
 
+        self.praat_path = None  # Personalized Praat path
+        self._load_user_settings()
+
+        self.resize(1200, 800)
+
+    def _setup_ui(self):
+        """Setup the main UI layout"""
         # Row 1: Load button + folder path
         top_row1 = QHBoxLayout()
 
@@ -211,9 +179,7 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout()
         right_layout.addWidget(QLabel("Show Features:"))
         right_layout.addWidget(self.feature_selector)
-
         right_layout.addWidget(self.variable_viewer)
-
         right_layout.addStretch()
         right_panel.setLayout(right_layout)
 
@@ -227,26 +193,54 @@ class MainWindow(QMainWindow):
 
         self.variable_viewer.itemDoubleClicked.connect(self.rename_variable_column)
         self._need_to_rebuild_vars = True
-        self._create_menus()
 
-        self.resize(1200, 800)
+        # Open in Praat button
+        self.open_in_praat_button = QPushButton("Open in Praat")
+        self.open_in_praat_button.setEnabled(False)
+        self.open_in_praat_button.clicked.connect(self.open_in_praat)
+        top_row1.addWidget(self.open_in_praat_button)
 
     def showEvent(self, event):
         super().showEvent(event)
         self.resize(1600, 900)
 
+    def open_in_praat(self):
+        """Open selected file (wav + TextGrid) in Praat using external launcher"""
+        try:
+            if not hasattr(self, 'selected_file_name') or not self.selected_file_name:
+                QMessageBox.warning(self, "No file selected", "Select a row in the table first.")
+                return
+
+            for name, wav_path, tg_path in self.file_pairs:
+                if name == self.selected_file_name:
+                    break
+            else:
+                QMessageBox.warning(self, "File not found", "Could not locate file paths.")
+                return
+
+            success, error = launch_praat(wav_path, tg_path, praat_path=self.praat_path)
+
+            if not success:
+                QMessageBox.critical(self, "Failed to Launch Praat", error)
+
+        except Exception as e:
+            print(f"❌ Error opening in Praat: {e}")
+            QMessageBox.critical(self, "Error", f"Could not open in Praat:\n{e}")
+
     def on_tier_changed(self):
-        # next refresh_table() will rebuild the Var… list
+        """Handle tier selection change"""
         self._need_to_rebuild_vars = True
+        self.clear_all_filters()  # Clear filters when changing tiers
         self.refresh_table()
 
     def _create_menus(self):
+        """Create application menus"""
         menubar = self.menuBar()
 
+        # Edit menu
         edit_menu = menubar.addMenu("Edit")
-
         undo_action = QAction("Undo", self)
-        undo_action.triggered.connect(lambda: self.table.undo())  # May require focus
+        undo_action.triggered.connect(lambda: self.table.undo())
         redo_action = QAction("Redo", self)
         redo_action.triggered.connect(lambda: self.table.redo())
         copy_action = QAction("Copy", self)
@@ -254,30 +248,40 @@ class MainWindow(QMainWindow):
         paste_action = QAction("Paste", self)
         paste_action.triggered.connect(lambda: self.table.paste())
 
-        # Add actions to Edit menu
         edit_menu.addAction(undo_action)
         edit_menu.addAction(redo_action)
         edit_menu.addSeparator()
         edit_menu.addAction(copy_action)
         edit_menu.addAction(paste_action)
 
-        # Export menu
+        # File menu
         file_menu = menubar.addMenu("File")
         export_action = QAction("Export Table to CSV…", self)
         export_action.triggered.connect(self.export_table_to_csv)
         file_menu.addAction(export_action)
 
+        set_path_action = QAction("Set Praat Path…", self)
+        set_path_action.triggered.connect(self.set_praat_path)
+        file_menu.addAction(set_path_action)
+        
+        # Filter menu
+        filter_menu = menubar.addMenu("Filters")
+        clear_filters_action = QAction("Clear All Filters", self)
+        clear_filters_action.triggered.connect(self.clear_all_filters)
+        filter_menu.addAction(clear_filters_action)
+
     def update_visible_features(self):
+        """Update which features are visible in the table"""
         self.selected_features = set()
         for i in range(self.feature_selector.count()):
             item = self.feature_selector.item(i)
             if item.checkState() == Qt.CheckState.Checked:
                 self.selected_features.add(item.text())
 
-        self.refresh_table()  # Re-render table with updated visible columns
+        self.refresh_table()
 
     def build_variable_list(self):
-        # block signals so we don’t immediately retrigger refresh_table()
+        """Build the list of variable columns based on detected patterns"""
         self.variable_viewer.blockSignals(True)
         self.variable_viewer.clear()
 
@@ -298,80 +302,139 @@ class MainWindow(QMainWindow):
             self.variable_viewer.setDisabled(True)
 
         self.variable_viewer.blockSignals(False)
-        # now connect its signal so clicking a var triggers refresh_table()
         self.variable_viewer.itemChanged.connect(self.refresh_table)
 
     def load_folder(self):
+        """Load folder containing audio and TextGrid files"""
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if not folder:
             return
 
-        self.file_pairs = load_file_pairs(folder)
+        try:
+            self.file_pairs = load_file_pairs(folder)
+            if not self.file_pairs:
+                QMessageBox.warning(self, "No Files",
+                    "No matching audio and TextGrid files found in the selected folder.")
+                return
 
-        # Shows truncated folder path in the label
-        short_path = shorten_path(folder)
-        self.folder_label.setText(short_path)
-        self.folder_label.setToolTip(folder)
+            # Show truncated folder path
+            short_path = shorten_path(folder)
+            self.folder_label.setText(short_path)
+            self.folder_label.setToolTip(folder)
 
-        tier_name_sets = []
-        for _, _, tg_path in self.file_pairs:
+            # Gather the set of IntervalTier names from each file
+            tier_name_sets = []
+            for _, _, tg_path in self.file_pairs:
+                try:
+                    tg = TextGrid.fromFile(tg_path)
+                    names = [t.name for t in tg.tiers if t.__class__.__name__ == "IntervalTier"]
+                    tier_name_sets.append(set(names))
+                except Exception as e:
+                    print(f"Error reading {tg_path}: {e}")
+
+            if not tier_name_sets:
+                QMessageBox.warning(self, "No Tiers",
+                    "No valid IntervalTier found in the TextGrid files.")
+                return
+
+            # Compute common tiers and keep their raw names
+            self._raw_tiers = sorted(set.union(*tier_name_sets))
+
+            # Populate dropdown as “Tier 1: name”, etc.
             try:
-                tg = TextGrid.fromFile(tg_path)
-                names = [tier.name for tier in tg.tiers if tier.__class__.__name__ == "IntervalTier"]
-                tier_name_sets.append(set(names))
-            except Exception as e:
-                print(f"Error reading {tg_path}: {e}")
+                self.tier_dropdown.currentIndexChanged.disconnect(self.on_tier_changed)
+            except Exception:
+                pass
 
-        if not tier_name_sets:
-            return
+            self.tier_dropdown.clear()
+            for i, name in enumerate(self._raw_tiers, start=1):
+                self.tier_dropdown.addItem(f"Tier {i}: {name}")
 
-        common_tiers = sorted(set.union(*tier_name_sets))
-        self.tier_dropdown.clear()
-        self.tier_dropdown.addItems(common_tiers)
-        self.on_tier_changed() 
+            self.tier_dropdown.currentIndexChanged.connect(self.on_tier_changed)
+
+            # Select the first tier by default
+            if self._raw_tiers:
+                self.tier_dropdown.setCurrentIndex(0)
+                self.on_tier_changed()
+
+            # Immediately populate the table
+            self.refresh_table()
+
+        except Exception as e:
+            print(f"Error loading folder: {e}")
+            QMessageBox.warning(self, "Error",
+                f"Failed to load folder:\n{e}")
+
 
     def refresh_table(self):
-        if not self.file_pairs:
+        """Refresh the table with current data and settings"""
+        self._clear_filter_cache()
+
+        if not self.file_pairs or not hasattr(self, "_raw_tiers"):
             return
 
-        selected_tier = self.tier_dropdown.currentText()
-        self.tier_intervals = []
+        # Ensure a tier is selected
+        if self.tier_dropdown.count() and self.tier_dropdown.currentIndex() < 0:
+            self.tier_dropdown.setCurrentIndex(0)
 
+        idx = self.tier_dropdown.currentIndex()
+        if idx < 0 or idx >= len(self._raw_tiers):
+            return
+        selected_tier = self._raw_tiers[idx]
+
+        self.tier_intervals = []
         label_has_dash = False
 
+        # Collect intervals, skipping TextGrids without this tier
         for name, wav_path, tg_path in self.file_pairs:
             try:
                 intervals = extract_intervals(tg_path, tier_name=selected_tier)
-                for intv in intervals:
-                    label = intv['label']
-                    if '-' in label:
-                        label_has_dash = True
-                    start = float(intv['start'])
-                    end = float(intv['end'])
-                    duration = round(end - start, 4)
+            except ValueError:
+                # Not an IntervalTier: skip silently
+                continue
 
-                    self.tier_intervals.append([
-                        name, label, start, end, duration
-                    ])
-            except Exception as e:
-                print(f"Error parsing {tg_path}: {e}")
+            for intv in intervals:
+                lab = intv["label"]
+                if "-" in lab:
+                    label_has_dash = True
+                start = float(intv["start"])
+                end   = float(intv["end"])
+                dur   = round(end - start, 4)
+                self.tier_intervals.append([name, lab, start, end, dur])
 
         if not self.tier_intervals:
-            print(f"⚠️ No intervals found for tier: '{selected_tier}'")
+            print(f"⚠️ No intervals found for tier '{selected_tier}'")
+            return
 
-        # Decide whether to split variables automatically
+        # Should we split labels into variables?
         self.split_labels = label_has_dash
 
-        # only rebuild Var… checkboxes when the tier selection actually changes
         if self._need_to_rebuild_vars:
             self.build_variable_list()
             self._need_to_rebuild_vars = False
 
+        # Temporarily disconnect change signal
         try:
             self.table.itemChanged.disconnect(self.mark_as_modified)
         except Exception:
             pass
 
+        # Build and fill table
+        self._build_table_structure()
+        self._populate_table_data()
+
+        # Reconnect and reset edits
+        self.table.itemChanged.connect(self.mark_as_modified)
+        self.modified_cells.clear()
+
+        # Reapply any active filters
+        self.update_variable_column_indices()
+        if self.active_filters:
+            self._apply_all_filters()
+
+
+    def _build_table_structure(self):
+        """Build the table structure with headers and columns"""
         base_headers = ["File", "Interval"]
         feature_headers = [f for f in self.available_features if f in self.selected_features]
         variable_headers = []
@@ -389,207 +452,366 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(len(self.tier_intervals))
         self.table.verticalHeader().setMinimumSectionSize(30)
 
+    def _populate_table_data(self):
+        """Populate table with data"""
         for i, row in enumerate(self.tier_intervals):
             name, label, start, end, duration = row
             wav_path = self._get_wav_path(name)
 
-            self.table.setItem(i, 0, QTableWidgetItem(name))   # File
-            self.table.setItem(i, 1, QTableWidgetItem(label))  # Label
+            # Basic columns
+            self.table.setItem(i, 0, QTableWidgetItem(name))
+            self.table.setItem(i, 1, QTableWidgetItem(label))
 
             offset = 2
+
+            # Variable columns
             if self.split_labels:
                 parts = label.split("-")
                 for k, part in enumerate(parts):
-                    variable_item = self.variable_viewer.item(k)
-                    if variable_item and variable_item.checkState() == Qt.CheckState.Checked:
-                        self.table.setItem(i, offset, QTableWidgetItem(part))
-                        offset += 1
+                    if k < self.variable_viewer.count():
+                        variable_item = self.variable_viewer.item(k)
+                        if variable_item and variable_item.checkState() == Qt.CheckState.Checked:
+                            self.table.setItem(i, offset, QTableWidgetItem(part))
+                            offset += 1
 
-
+            # Feature columns
             feature_index = 0
             for feature in self.available_features:
                 if feature not in self.selected_features:
                     continue
 
-                if feature == "Duration":
-                    value = duration
-
-                elif feature == "Mid Intensity":
-                    value = compute_intensity_at_midpoint(wav_path, start, end)
-
-                elif feature == "ZCR":
-                    value = compute_zcr(wav_path, start, end)
-
-                elif feature == "Spectral Centroid":
-                    value = compute_spectral_centroid(wav_path, start, end)
-
-                else:
-                    value = ""
-
+                value = compute_feature_value(feature, wav_path, start, end, duration)
                 item = QTableWidgetItem(str(value) if value is not None else "")
                 self.table.setItem(i, offset + feature_index, item)
                 feature_index += 1
 
-        self.modified_cells.clear()
-        self.table.itemChanged.connect(self.mark_as_modified)
+    def _get_wav_path(self, name):
+        """Get WAV path for a given file name"""
+        for file_name, wav_path, _ in self.file_pairs:
+            if file_name == name:
+                return wav_path
+        return None
 
-        # Update variable column indices
-        self.update_variable_column_indices()
+    def show_filter_menu(self, col):
+        """Show filter menu for a column"""
+        if (col < 0 or col >= self.table.columnCount() or 
+            col not in self.variable_column_indices):
+            return
 
-        if self.variable_column_indices:
-            self.add_filter_buttons_to_headers(
-                min(self.variable_column_indices),
-                max(self.variable_column_indices) + 1
-            )
+        if self._active_filter_menu is not None:
+            return
+
+        try:
+            unique_values = get_unique_values_for_column(self.table, col)
+            if not unique_values:
+                return
+
+            if col not in self.active_filters:
+                self.active_filters[col] = set(unique_values)
+
+            def filter_callback(action, column, value=None, state=None):
+                if action == "select_all":
+                    self.active_filters[column] = set(value)
+                elif action == "clear_all":
+                    self.active_filters[column] = set()
+                elif action == "toggle":
+                    if state:
+                        self.active_filters[column].add(value)
+                    else:
+                        self.active_filters[column].discard(value)
+                self._queue_filter_update()
+
+            menu = create_filter_menu(self, col, unique_values, self.active_filters, filter_callback)
+            if menu:
+                self._active_filter_menu = menu
+                menu.aboutToHide.connect(self._on_filter_menu_close)
+                show_menu_near_column(self.table, menu, col)
+        except Exception as e:
+            print(f"❌ Error showing filter menu: {e}")
+
+    def _on_filter_menu_close(self):
+        """Handle filter menu close"""
+        self._active_filter_menu = None
+
+    def _select_all_filter_items(self, col, unique_values):
+        """Select all items in filter"""
+        try:
+            self.active_filters[col] = set(unique_values)
+            self._queue_filter_update()
+        except Exception as e:
+            print(f"Error selecting all filter items: {e}")
+
+    def _clear_all_filter_items(self, col):
+        """Clear all items in filter"""
+        try:
+            self.active_filters[col] = set()
+            self._queue_filter_update()
+        except Exception as e:
+            print(f"Error clearing all filter items: {e}")
+
+    def _update_filter_value(self, col, value, checked):
+        """Update a single filter value"""
+        try:
+            if col not in self.active_filters:
+                self.active_filters[col] = set()
+
+            if checked:
+                self.active_filters[col].add(value)
+            else:
+                self.active_filters[col].discard(value)
+
+            self._queue_filter_update()
+            
+        except Exception as e:
+            print(f"Error updating filter value: {e}")
+
+    def _queue_filter_update(self):
+        """Queue a filter update with debouncing"""
+        try:
+            # Cancel existing timer
+            if self.filter_update_timer is not None:
+                self.filter_update_timer.stop()
+                self.filter_update_timer = None
+
+            # Create new timer
+            self.filter_update_timer = QTimer(self)
+            self.filter_update_timer.setSingleShot(True)
+            self.filter_update_timer.timeout.connect(self._apply_all_filters)
+            self.filter_update_timer.start(self.filter_debounce_delay)
+            
+        except Exception as e:
+            print(f"Error queuing filter update: {e}")
+
+    def _apply_all_filters(self):
+        """Apply all active filters using small delayed batches to keep GUI responsive"""
+        if self.is_filtering:
+            return
+
+        self.is_filtering = True
+        self.table.blockSignals(True)
+
+        self._current_filter_batch = 0
+        self._total_filter_batches = self.table.rowCount() // 50 + 1
+        self._filter_batch_size = 50
+
+        def process_next_batch():
+            if self._current_filter_batch >= self._total_filter_batches:
+                self.table.blockSignals(False)
+                self.is_filtering = False
+                self._update_filter_headers()
+                self._current_filter_batch = 0
+                return
+
+            start_row = self._current_filter_batch * self._filter_batch_size
+            end_row = min(start_row + self._filter_batch_size, self.table.rowCount())
+
+            for row in range(start_row, end_row):
+                should_hide = self._should_hide_row(row)
+                self.table.setRowHidden(row, should_hide)
+
+            self._current_filter_batch += 1
+            QTimer.singleShot(1, process_next_batch)  # delay in ms
+
+        QTimer.singleShot(0, process_next_batch)
+
+    def _should_hide_row(self, row):
+        """Determine if a row should be hidden based on active filters"""
+        try:
+            for col, allowed_values in self.active_filters.items():
+                if not allowed_values:  # Empty filter = hide all
+                    return True
+                    
+                item = self.table.item(row, col)
+                if not item or item.text().strip() not in allowed_values:
+                    return True
+                    
+            return False
+        except Exception as e:
+            print(f"Error checking row visibility: {e}")
+            return False
+
+    def _update_filter_headers(self):
+        """Update column headers to show filter status"""
+        try:
+            for col in self.variable_column_indices:
+                header_item = self.table.horizontalHeaderItem(col)
+                if not header_item:
+                    continue
+                    
+                # Clean existing filter indicators
+                base_text = header_item.text()
+                for suffix in [" 🔽", " (filtered)", " (none)"]:
+                    base_text = base_text.replace(suffix, "")
+                
+                # Add appropriate indicator
+                if col in self.active_filters:
+                    total_unique = len(self.cached_unique_values.get(col, set()))
+                    active_count = len(self.active_filters[col])
+                    
+                    if active_count == 0:
+                        header_item.setText(f"{base_text} 🔽 (none)")
+                    elif active_count < total_unique:
+                        header_item.setText(f"{base_text} 🔽 (filtered)")
+                    else:
+                        header_item.setText(f"{base_text} 🔽")
+                else:
+                    header_item.setText(f"{base_text} 🔽")
+                    
+        except Exception as e:
+            print(f"Error updating filter headers: {e}")
+
+    def clear_all_filters(self):
+        """Clear all active filters"""
+        try:
+            # Clear filter state
+            self.active_filters.clear()
+            self._clear_filter_cache()
+            
+            # Show all rows
+            for row in range(self.table.rowCount()):
+                self.table.setRowHidden(row, False)
+            
+            # Clean up headers
+            self._clean_filter_headers()
+            
+        except Exception as e:
+            print(f"Error clearing filters: {e}")
+
+    def _clear_filter_cache(self):
+        """Clear the filter cache"""
+        self.cached_unique_values.clear()
+
+    def _clean_filter_headers(self):
+        """Clean filter indicators from headers"""
+        try:
+            for col in self.variable_column_indices:
+                header_item = self.table.horizontalHeaderItem(col)
+                if header_item:
+                    base_text = header_item.text()
+                    for suffix in [" 🔽", " (filtered)", " (none)"]:
+                        base_text = base_text.replace(suffix, "")
+                    header_item.setText(f"{base_text} 🔽")
+        except Exception as e:
+            print(f"Error cleaning filter headers: {e}")
+
+    def update_variable_column_indices(self):
+        """Update the list of variable column indices"""
+        try:
+            self.variable_column_indices = []
+            headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
+            for i, header in enumerate(headers):
+                if header.startswith("Var") and not header.endswith("(filtered)") and not header.endswith("(none)"):
+                    self.variable_column_indices.append(i)
+        except Exception as e:
+            print(f"Error updating variable column indices: {e}")
 
     def on_table_select(self, row, column, *_):
+        """Handle table cell selection"""
         try:
-            header = self.table.horizontalHeaderItem(column).text()
-            print(f"🧪 Table clicked: row={row}, column={column}, header={header}")
-
+            if row < 0 or column < 0 or row >= len(self.tier_intervals):
+                return
+            
+            header = self.table.horizontalHeaderItem(column)
+            if not header:
+                return
+                
+            header_text = header.text()
+            print(f"🧪 Table clicked: row={row}, column={column}, header={header_text}")
+            
             entry = self.tier_intervals[row]
             file_name = entry[0]
-
+            
             # Find matching wav path
             wav_path = None
-            for name, wav, _ in self.file_pairs:
+            for name, wav, *_ in self.file_pairs:
                 if name == file_name:
                     wav_path = wav
                     break
-
+                    
             if not wav_path:
                 print(f"⚠️ Could not find WAV file for: {file_name}")
                 return
-
+            
+            self.selected_file_name = file_name
+            self.open_in_praat_button.setEnabled(True)
+                
             start_time = float(entry[2])
             end_time = float(entry[3])
-
-            if header == "File":
+            
+            if header_text == "File":
+                # full file view & playback
                 print(f"👆 Selected full file: {file_name}")
-                self.waveform_viewer.plot_waveform(wav_path, start=start_time, end=end_time, zoom=False)
-                self.selected_segment_info = (wav_path, 0, None)
-
-            elif header == "Interval":
+                self.waveform_viewer.plot_waveform(wav_path,
+                                                start=None,
+                                                end=None,
+                                                zoom=False)
+                # signal “full file” by None,None
+                self.selected_segment_info = (wav_path, None, None)
+            elif header_text == "Interval":
                 print(f"👆 Selected segment (Label click): {file_name} [{start_time:.2f}s - {end_time:.2f}s]")
                 self.waveform_viewer.plot_waveform(wav_path, start=start_time, end=end_time, zoom=True)
                 self.selected_segment_info = (wav_path, start_time, end_time)
-
             else:
                 print(f"👆 Selected segment (zoom): {file_name} [{start_time:.2f}s - {end_time:.2f}s]")
-                self.waveform_viewer.plot_waveform(wav_path, start=start_time, end=end_time)
+                self.waveform_viewer.plot_waveform(wav_path, start=start_time, end=end_time, zoom=True)
                 self.selected_segment_info = (wav_path, start_time, end_time)
-
+                
         except Exception as e:
-            print(f"Error selecting row: {e}")
+            print(f"Error in table selection: {e}")
 
-    def keyPressEvent(self, event: QKeyEvent):
-        if event.key() == Qt.Key.Key_Tab:
-            current_row = self.table.currentRow()
-            current_column = self.table.currentColumn()
-            if current_row >= 0 and current_column >= 0:
-                self.on_table_select(current_row, current_column)
-                self.play_from_waveform()
-            event.accept()
-        else:
-            super().keyPressEvent(event)
-
-    def eventFilter(self, source, event):
-        if source == self.table and event.type() == event.Type.KeyPress:
-            if event.key() == Qt.Key.Key_Tab:
-                row = self.table.currentRow()
-                col = self.table.currentColumn()
-
-                if row >= 0 and col >= 0:
-                    self.on_table_select(row, col)
-                    self.play_from_waveform()
-                    return True  # prevent default tab behavior
-
-        return super().eventFilter(source, event)
-    
-    def show_filter_menu(self, col):
-        if col not in getattr(self, "variable_column_indices", []):
-            return
-
-        unique_values = set()
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, col)
-            if item:
-                unique_values.add(item.text())
-
-        if col not in self.active_filters:
-            self.active_filters[col] = set(unique_values)
-
-        menu = QMenu(self)
-        for val in sorted(unique_values):
-            action = QAction(val, self)
-            action.setCheckable(True)
-            action.setChecked(val in self.active_filters[col])
-            action.toggled.connect(lambda checked, v=val, c=col: self._apply_column_filter(c, v, checked))
-            menu.addAction(action)
-
-        header = self.table.horizontalHeader()
-        section_pos = header.sectionViewportPosition(col)
-        global_pos = self.table.mapToGlobal(header.pos()) + QPoint(section_pos, header.height())
-        menu.exec(global_pos)
-
-    def add_filter_buttons_to_headers(self, variable_start_idx, variable_end_idx):
-        self.variable_column_indices = list(range(variable_start_idx, variable_end_idx))
-        header = self.table.horizontalHeader()
-        header.sectionClicked.connect(self.show_filter_menu)
-
-    def update_variable_column_indices(self):
-        self.variable_column_indices = []
-        headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
-        for i, header in enumerate(headers):
-            if header.startswith("Var"):
-                self.variable_column_indices.append(i)
-
-    def _get_wav_path(self, file_name):
-        for name, wav, _ in self.file_pairs:
-            if name == file_name:
-                return wav
-        return None
-
-    def _apply_column_filter(self, col, value, checked):
-        if col not in self.active_filters:
-            self.active_filters[col] = set()
-
-        if checked:
-            self.active_filters[col].add(value)
-        else:
-            self.active_filters[col].discard(value)
-
-        allowed_values = self.active_filters[col]
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, col)
-            if item:
-                self.table.setRowHidden(row, item.text() not in allowed_values)
-
-        # Cambia el nombre del header si hay filtro activo
-        header_item = self.table.horizontalHeaderItem(col)
-        base_text = header_item.text().replace(" 🔽", "").replace(" 🔽 (filtered)", "")
-        if len(self.active_filters[col]) < len(set(self.table.item(r, col).text() for r in range(self.table.rowCount()) if self.table.item(r, col))):
-            header_item.setText(f"{base_text} 🔽 (filtered)")
-        else:
-            header_item.setText(f"{base_text} 🔽")
-
-    def play_from_waveform(self):
+    def play_from_waveform(self, time_position=None):
+        """
+        If time_position is None (e.g. Tab key), play the entire selected segment (or file).
+        If time_position is a float, play based on the current selection mode:
+        - If full file is selected (start_time=None, end_time=None): play entire file
+        - If segment is selected: play 1-second snippet from click position within segment
+        """
         try:
-            if self.selected_segment_info is None:
-                print("⚠️ No segment selected.")
+            if not self.selected_segment_info:
+                print("⚠️ No segment selected for playback")
                 return
 
             wav_path, start_time, end_time = self.selected_segment_info
+            
+            # Import the updated audio player
+            from app.core.audio_player import play_segment, stop_playback
+            
+            # Stop any existing playback
+            stop_playback()
 
-            if self.current_playback:
-                self.current_playback.stop()
-
-            print(f"🎵 Playing from waveform: {os.path.basename(wav_path)} [{start_time:.2f}s - {end_time if end_time else 'end'}]")
-            self.current_playback = play_segment(wav_path, start_time, end_time)
+            if time_position is None:
+                # Tab key or programmatic call → play full segment (or full file)
+                if start_time is None and end_time is None:
+                    # Full file playback
+                    print(f"🔊 Playing full file: {wav_path}")
+                    self.current_playback = play_segment(wav_path, 0.0, None)
+                else:
+                    # Play the selected interval
+                    print(f"🔊 Playing interval: {start_time:.2f}s - {end_time:.2f}s")
+                    self.current_playback = play_segment(wav_path, start_time, end_time)
+            else:
+                # Mouse click on waveform
+                click_time = float(time_position)
+                
+                if start_time is None and end_time is None:
+                    # Full file is selected → always play entire file regardless of click position
+                    print(f"🔊 Playing full file (clicked at {click_time:.2f}s): {wav_path}")
+                    self.current_playback = play_segment(wav_path, 0.0, None)
+                else:
+                    # Segment is selected → play snippet from click position within segment
+                    # Ensure click is within the segment bounds
+                    click_time = max(start_time, min(click_time, end_time - 0.1))
+                    
+                    # Play 1 second from click time, but don't exceed segment bounds
+                    snippet_end = min(click_time + 1.0, end_time)
+                    
+                    print(f"🔊 Playing snippet: {click_time:.2f}s - {snippet_end:.2f}s")
+                    self.current_playback = play_segment(wav_path, click_time, snippet_end)
 
         except Exception as e:
-            print(f"Error in waveform playback: {e}")
-
+            print(f"❌ Error playing from waveform: {e}")
+            import traceback
+            traceback.print_exc()
 
     def toggle_editing(self, state):
         is_editable = state == 2
@@ -597,7 +819,7 @@ class MainWindow(QMainWindow):
             QTableWidget.EditTrigger.AllEditTriggers if is_editable
             else QTableWidget.EditTrigger.NoEditTriggers
         )
-
+    
     def toggle_table_editing(self, state):
         is_editable = state == 2  # Qt.Checked
         self.table.setEditTriggers(
@@ -631,6 +853,7 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
         event.accept()
+
 
     def save_table_edits(self):
         headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
@@ -671,17 +894,56 @@ class MainWindow(QMainWindow):
                 elif name == file_name:
                     try:
                         tg = TextGrid.fromFile(tg_path)
-                        tier_name = self.tier_dropdown.currentText()
-                        tier = tg.getFirst(tier_name)
+                        
+                        # FIX: Get the actual tier name, not the dropdown display text
+                        tier_index = self.tier_dropdown.currentIndex()
+                        if tier_index >= 0 and tier_index < len(self._raw_tiers):
+                            actual_tier_name = self._raw_tiers[tier_index]
+                        else:
+                            print(f"⚠️ Invalid tier index: {tier_index}")
+                            continue
+                        
+                        # Find the tier by its actual name
+                        tier = None
+                        for t in tg.tiers:
+                            if t.name == actual_tier_name and t.__class__.__name__ == "IntervalTier":
+                                tier = t
+                                break
+                        
+                        if tier is None:
+                            print(f"⚠️ Tier '{actual_tier_name}' not found in {tg_path}")
+                            continue
 
+                        # Find and update the matching interval
+                        interval_found = False
                         for interval in tier.intervals:
                             if abs(interval.minTime - start) < 0.001 and abs(interval.maxTime - end) < 0.001:
                                 interval.mark = full_label
+                                interval_found = True
+                                print(f"✅ Updated interval in {tg_path}: '{interval.mark}' -> '{full_label}'")
                                 break
+                        
+                        if not interval_found:
+                            print(f"⚠️ No matching interval found in {tg_path} for times {start}-{end}")
+                            continue
 
+                        # Save the TextGrid
                         tg.write(tg_path)
+                        print(f"✅ Saved changes to {tg_path}")
+                        
                     except Exception as e:
-                        print(f"Error saving to {tg_path}: {e}")
+                        print(f"❌ Error saving to {tg_path}: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+        # Clear the modified cells and reset their visual styling
+        for row, col in self.modified_cells:
+            item = self.table.item(row, col)
+            if item:
+                item.setBackground(QColor())  # Reset to default background
+        
+        self.modified_cells.clear()
+        print(f"✅ All changes saved and cleared")
 
     def mouseDoubleClickEvent(self, event):
         # Verifica si se hizo doble clic sobre el header
@@ -697,42 +959,139 @@ class MainWindow(QMainWindow):
                 self.table.setHorizontalHeaderItem(logical_index, QTableWidgetItem(new_name.strip()))
 
     def export_table_to_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save CSV", "", "CSV Files (*.csv)")
-        if not path:
-            return
-
+        """Export current table to CSV"""
         try:
-            headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
-
-            with open(path, "w", encoding="utf-8") as f:
+            if self.table.rowCount() == 0:
+                QMessageBox.warning(self, "Export Error", "No data to export.")
+                return
+                
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "Export Table to CSV", 
+                "vocal_data.csv", 
+                "CSV Files (*.csv)"
+            )
+            
+            if not file_path:
+                return
+                
+            import csv
+            
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                
                 # Write headers
-                f.write(",".join(headers) + "\n")
-
-                # Write rows
+                headers = []
+                for col in range(self.table.columnCount()):
+                    header_item = self.table.horizontalHeaderItem(col)
+                    if header_item:
+                        # Clean header text
+                        header_text = header_item.text()
+                        for suffix in [" 🔽", " (filtered)", " (none)"]:
+                            header_text = header_text.replace(suffix, "")
+                        headers.append(header_text)
+                    else:
+                        headers.append(f"Column_{col}")
+                        
+                writer.writerow(headers)
+                
+                # Write visible rows only
                 for row in range(self.table.rowCount()):
-                    row_data = []
-                    for col in range(self.table.columnCount()):
-                        item = self.table.item(row, col)
-                        value = item.text() if item else ""
-                        value = value.replace(",", " ")  # avoid breaking CSV
-                        row_data.append(value)
-                    f.write(",".join(row_data) + "\n")
-
-            QMessageBox.information(self, "Export Successful", f"Table exported successfully to:\n{path}")
-
+                    if not self.table.isRowHidden(row):
+                        row_data = []
+                        for col in range(self.table.columnCount()):
+                            item = self.table.item(row, col)
+                            row_data.append(item.text() if item else "")
+                        writer.writerow(row_data)
+                        
+            QMessageBox.information(
+                self, 
+                "Export Complete", 
+                f"Table exported to:\n{file_path}"
+            )
+            
         except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"❌ Error exporting CSV:\n\n{e}")
+            print(f"Error exporting table: {e}")
+            QMessageBox.critical(self, "Export Error", f"Failed to export table:\n{str(e)}")
 
     def rename_variable_column(self, item):
-        old_name = item.text()
-        new_name, ok = QInputDialog.getText(self, "Rename Variable", f"Rename '{old_name}' to:")
-        if ok and new_name.strip():
-            item.setText(new_name.strip())
+        """Rename a variable column"""
+        try:
+            current_text = item.text()
+            new_name, ok = QInputDialog.getText(
+                self, 
+                "Rename Variable", 
+                f"Enter new name for '{current_text}':",
+                text=current_text
+            )
+            
+            if ok and new_name.strip() and new_name != current_text:
+                item.setText(new_name.strip())
+                self.refresh_table()
+                
+        except Exception as e:
+            print(f"Error renaming variable column: {e}")
 
-            # Actualiza también los headers si ya están en la tabla
-            headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
-            if old_name in headers:
-                col_idx = headers.index(old_name)
-                self.table.setHorizontalHeaderItem(col_idx, QTableWidgetItem(new_name.strip()))
+    def eventFilter(self, obj, event):
+        """Handle keyboard shortcuts for table"""
+        try:
+            if obj == self.table and event.type() == event.Type.KeyPress:
+                key = event.key()
+                modifiers = event.modifiers()
+                
+                if key == Qt.Key.Key_Space:
+                    # Play selected segment
+                    current_row = self.table.currentRow()
+                    if current_row >= 0:
+                        # Trigger the selection to load the segment info
+                        self.on_table_select(current_row, 1)  # Select interval column
+                        # Small delay to ensure selection is processed
+                        QTimer.singleShot(50, lambda: self.play_from_waveform(None))
+                    return True
+                    
+                elif key == Qt.Key.Key_Escape:
+                    # Stop current playback
+                    try:
+                        from app.core.audio_player import stop_playback
+                        stop_playback()
+                        print("🛑 Playback stopped via Escape key")
+                    except Exception as e:
+                        print(f"Error stopping playback: {e}")
+                    return True
+                    
+            return super().eventFilter(obj, event)
+            
+        except Exception as e:
+            print(f"Error in event filter: {e}")
+            return False
+        
+    def _get_settings_path(self):
+        return os.path.join(os.path.expanduser("~"), ".vocalfolder_settings.json")
 
+    def _load_user_settings(self):
+        try:
+            path = self._get_settings_path()
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    settings = json.load(f)
+                    self.praat_path = settings.get("praat_path")
+        except Exception as e:
+            print(f"⚠️ Could not load settings: {e}")
 
+    def _save_user_settings(self):
+        try:
+            path = self._get_settings_path()
+            with open(path, "w") as f:
+                json.dump({"praat_path": self.praat_path}, f)
+        except Exception as e:
+            print(f"❌ Could not save settings: {e}")
+
+    def set_praat_path(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Praat Executable", "", 
+            "Executables (*.app *.exe *praat*)"
+        )
+        if file_path:
+            self.praat_path = file_path
+            self._save_user_settings()
+            QMessageBox.information(self, "Path Set", f"✅ Praat path saved:\n{file_path}")
