@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QFileDialog, QTableWidget, QTableWidgetItem,
     QMenuBar, QMenu, QCheckBox, QMessageBox, QInputDialog, QSizePolicy,
     QHeaderView, QToolButton, QSplitter, QListWidget, QListWidgetItem,
-    QApplication, QFileDialog
+    QApplication, QDialog, QLineEdit, QDialogButtonBox
 )
 import numpy as np
 import json
@@ -56,7 +56,7 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(icon_path))
 
         # Available features for the table
-        self.available_features = ["Duration", "Mid Intensity", "ZCR", "Spectral Centroid"]
+        self.available_features = ["Duration", "Mid Intensity", "ZCR", "Spectral Centroid", "F1", "F2", "F3"]
         self.selected_features = set()
 
         self.variable_column_indices = []
@@ -269,6 +269,43 @@ class MainWindow(QMainWindow):
         clear_filters_action = QAction("Clear All Filters", self)
         clear_filters_action.triggered.connect(self.clear_all_filters)
         filter_menu.addAction(clear_filters_action)
+
+        # Spectrogram menu
+        spectrogram_menu = self.menuBar().addMenu("Spectrogram")
+
+        # Color map actions
+        cmap_menu = spectrogram_menu.addMenu("Color Map")
+        for cmap_name in ['viridis', 'magma', 'plasma', 'gray']:
+            action = cmap_menu.addAction(cmap_name)
+            action.triggered.connect(lambda checked, cmap=cmap_name: self.set_spec_colormap(cmap))
+
+        # Frequency limits action
+        freq_limits_action = spectrogram_menu.addAction("Set Frequency Limits...")
+        freq_limits_action.triggered.connect(self.set_spec_freq_limits)
+
+        # Reset frequency limits action
+        reset_action = spectrogram_menu.addAction("Reset Frequency Limits")
+        reset_action.triggered.connect(self.reset_spec_freq_limits)
+
+        # Features menu
+        features_menu = self.menuBar().addMenu("Features")
+
+        # Submenú para modo de extracción de formantes
+        formant_mode_menu = features_menu.addMenu("Formant Extraction Mode")
+
+        midpoint_action = formant_mode_menu.addAction("Midpoint (default)")
+        midpoint_action.setCheckable(True)
+        midpoint_action.setChecked(True)
+        midpoint_action.triggered.connect(lambda: self.set_formant_mode("midpoint"))
+
+        mean_action = formant_mode_menu.addAction("Mean over interval")
+        mean_action.setCheckable(True)
+        mean_action.setChecked(False)
+        mean_action.triggered.connect(lambda: self.set_formant_mode("mean"))
+
+        # Para que se comporten como radio buttons
+        formant_mode_menu_group = [midpoint_action, mean_action]
+
 
     def update_visible_features(self):
         """Update which features are visible in the table"""
@@ -739,19 +776,26 @@ class MainWindow(QMainWindow):
             end_time = float(entry[3])
             
             if header_text == "File":
-                # full file view & playback
-                print(f"👆 Selected full file: {file_name}")
-                self.waveform_viewer.plot_waveform(wav_path,
-                                                start=None,
-                                                end=None,
-                                                zoom=False)
-                # signal “full file” by None,None
+                # File column clicked: show full file view with interval highlighted
+                print(f"👆 Selected file with interval highlight: {file_name} (highlighting [{start_time:.2f}s - {end_time:.2f}s])")
+                
+                # Plot full waveform first
+                self.waveform_viewer.plot_waveform(wav_path, start=None, end=None, zoom=False)
+                
+                # Then add highlight for the specific interval
+                self.waveform_viewer.highlight_interval(start_time, end_time)
+                
+                # Set segment info for playback (full file)
                 self.selected_segment_info = (wav_path, None, None)
+                
             elif header_text == "Interval":
+                # Interval column clicked: zoom to interval (existing behavior)
                 print(f"👆 Selected segment (Label click): {file_name} [{start_time:.2f}s - {end_time:.2f}s]")
                 self.waveform_viewer.plot_waveform(wav_path, start=start_time, end=end_time, zoom=True)
                 self.selected_segment_info = (wav_path, start_time, end_time)
+                
             else:
+                # Other columns clicked: zoom to interval (existing behavior)
                 print(f"👆 Selected segment (zoom): {file_name} [{start_time:.2f}s - {end_time:.2f}s]")
                 self.waveform_viewer.plot_waveform(wav_path, start=start_time, end=end_time, zoom=True)
                 self.selected_segment_info = (wav_path, start_time, end_time)
@@ -827,13 +871,24 @@ class MainWindow(QMainWindow):
         )
 
     def mark_as_modified(self, item):
-        self.modified_cells.add((item.row(), item.column()))
+        col = item.column()
+        header_item = self.table.horizontalHeaderItem(col)
+        if not header_item:
+            return
 
-        # 🟡 Aplica color visual a la celda modificada
-        item.setBackground(QColor("#FFF3CD"))  # Un color amarillo claro
+        header_text = header_item.text().strip()
 
-        # Solo mostrar advertencia si se edita la columna "File" por primera vez
-        if item.column() == 0 and not self.file_edit_warning_shown:
+        # Only allow modifications to specific columns
+        if header_text not in ["File", "Interval"] and not header_text.startswith("Var"):
+            return
+
+        self.modified_cells.add((item.row(), col))
+
+        # Visually mark modified cells
+        item.setBackground(QColor("#FFF3CD"))
+
+        # Show warning for filename changes
+        if col == 0 and not self.file_edit_warning_shown:
             QMessageBox.warning(
                 self, "Warning",
                 "Changing the filename will rename both the .wav and .TextGrid files."
@@ -1095,3 +1150,122 @@ class MainWindow(QMainWindow):
             self.praat_path = file_path
             self._save_user_settings()
             QMessageBox.information(self, "Path Set", f"✅ Praat path saved:\n{file_path}")
+
+    def set_spec_colormap(self, cmap_name):
+        self.waveform_viewer.spec_cmap = cmap_name
+        # Redibuja si ya hay un archivo cargado
+        if self.waveform_viewer.current_wav_path:
+            self.waveform_viewer.plot_waveform(
+                self.waveform_viewer.current_wav_path,
+                zoom=False
+            )
+
+    def set_spec_freq_limits(self):
+        class FrequencyDialog(QDialog):
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                self.setWindowTitle("Set Frequency Limits")
+
+                self.min_input = QLineEdit(str(self.parent().waveform_viewer.spec_freq_min or 0))
+                self.max_input = QLineEdit(str(self.parent().waveform_viewer.spec_freq_max or 8000))
+
+                layout = QVBoxLayout()
+
+                min_layout = QHBoxLayout()
+                min_layout.addWidget(QLabel("Min frequency (Hz):"))
+                min_layout.addWidget(self.min_input)
+
+                max_layout = QHBoxLayout()
+                max_layout.addWidget(QLabel("Max frequency (Hz):"))
+                max_layout.addWidget(self.max_input)
+
+                layout.addLayout(min_layout)
+                layout.addLayout(max_layout)
+
+                buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+                buttons.accepted.connect(self.accept)
+                buttons.rejected.connect(self.reject)
+                layout.addWidget(buttons)
+
+                self.setLayout(layout)
+
+            def get_values(self):
+                try:
+                    min_f = int(self.min_input.text())
+                    max_f = int(self.max_input.text())
+                    if min_f < 0 or max_f <= min_f:
+                        raise ValueError
+                    return min_f, max_f
+                except ValueError:
+                    QMessageBox.warning(self, "Invalid input", "Frequencies must be integers and Max > Min.")
+                    return None
+
+        # Create and show dialog
+        dialog = FrequencyDialog(self)
+        if dialog.exec():
+            values = dialog.get_values()
+            if values:
+                min_freq, max_freq = values
+                self.waveform_viewer.spec_freq_min = min_freq
+                self.waveform_viewer.spec_freq_max = max_freq
+
+                if self.waveform_viewer.current_wav_path:
+                    self.waveform_viewer.plot_waveform(
+                        self.waveform_viewer.current_wav_path,
+                        zoom=False
+                    )
+
+    def reset_spec_freq_limits(self):
+        self.waveform_viewer.spec_freq_min = 0
+        self.waveform_viewer.spec_freq_max = None
+        if self.waveform_viewer.current_wav_path:
+            self.waveform_viewer.plot_waveform(
+                self.waveform_viewer.current_wav_path,
+                zoom=False
+            )
+
+    def set_formant_mode(self, mode):
+        from app.core import feature_extractor
+        feature_extractor.formant_mode = mode
+        feature_extractor._feature_caches["formants"].clear()
+        print(f"🔧 Formant mode set to: {mode}")
+
+        # Update the UI checkboxes
+        for action in self.findChildren(QAction):
+            if action.text() == "Midpoint (default)":
+                action.setChecked(mode == "midpoint")
+            elif action.text() == "Mean over interval":
+                action.setChecked(mode == "mean")
+
+        # Redraw waveform with new formant mode
+        if self.waveform_viewer.current_wav_path:
+            self.waveform_viewer.plot_waveform(
+                self.waveform_viewer.current_wav_path,
+                zoom=False
+            )
+
+        # Refresh feature columns to reflect the new formant mode
+        self.refresh_feature_columns()
+
+    @safe_table_operation
+    def refresh_feature_columns(self):
+        """Recalcula los valores de features seleccionados en todas las filas."""
+        from app.core.feature_extractor import compute_feature_value
+
+        headers = [self.table.horizontalHeaderItem(i).text() for i in range(self.table.columnCount())]
+        feature_cols = {
+            header: col
+            for col, header in enumerate(headers)
+            if header in self.selected_features
+        }
+
+        for row_idx, row_data in enumerate(self.tier_intervals):
+            name, label, start, end, duration = row_data
+            wav_path = self._get_wav_path(name)
+
+            for feature in self.selected_features:
+                if feature in feature_cols:
+                    col_idx = feature_cols[feature]
+                    value = compute_feature_value(feature, wav_path, start, end, duration)
+                    item = QTableWidgetItem(str(value) if value is not None else "")
+                    self.table.setItem(row_idx, col_idx, item)
