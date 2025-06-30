@@ -7,6 +7,12 @@ from PyQt6.QtGui import QIcon
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyleSheet("""
+        QWidget { font-size: 14px; }
+        QGroupBox { font-size: 14px; font-weight: bold; }
+        QTableWidget { font-size: 13px; }
+        QCheckBox { font-size: 13px; }
+    """)
 
     # compute the same path you know exists
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

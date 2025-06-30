@@ -4,14 +4,15 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QFileDialog, QTableWidget, QTableWidgetItem,
     QMenuBar, QMenu, QCheckBox, QMessageBox, QInputDialog, QSizePolicy,
     QHeaderView, QToolButton, QSplitter, QListWidget, QListWidgetItem,
-    QApplication, QDialog, QLineEdit, QDialogButtonBox
+    QApplication, QDialog, QLineEdit, QDialogButtonBox, QGroupBox, QScrollArea, 
+    QFormLayout, QFrame, QStackedLayout
 )
 import numpy as np
 import json
 import parselmouth
 import librosa
 from PyQt6.QtGui import (QKeyEvent, QAction, QColor)
-from PyQt6.QtCore import (Qt, QPoint, QTimer)
+from PyQt6.QtCore import (Qt, QPoint, QTimer,QSize)
 from app.core.file_loader import load_file_pairs
 from app.core.textgrid_parser import extract_intervals
 from textgrid import TextGrid
@@ -102,14 +103,37 @@ class MainWindow(QMainWindow):
         self.variable_viewer = QListWidget()
         self.variable_viewer.setMaximumWidth(200)
         self.variable_viewer.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        self.variable_viewer.setDisabled(True)
-        self.variable_viewer.addItem("🔍 No variables detected")
+        self.variable_viewer.setFrameShape(QFrame.Shape.NoFrame)
+
+        self.variable_placeholder_label = QLabel("🔍 No variables detected — labels with '-' will appear here as separate columns")
+        self.variable_placeholder_label.setWordWrap(True)
+        self.variable_placeholder_label.setStyleSheet("color: #444; font-style: italic; padding: 5px;")
+        self.variable_placeholder_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+        # Contenedor para controlar tamaño real del QLabel
+        self.variable_placeholder = QWidget()
+        placeholder_layout = QVBoxLayout(self.variable_placeholder)
+        placeholder_layout.addWidget(self.variable_placeholder_label)
+        placeholder_layout.setContentsMargins(0, 0, 0, 0)
+        placeholder_layout.setSpacing(0)
+
+        self.variable_placeholder.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        self.variable_placeholder.setMaximumHeight(self.variable_placeholder_label.sizeHint().height() + 10)
+
+        self.variable_viewer.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        self.variable_viewer.setMaximumHeight(self.variable_viewer.sizeHintForRow(0) * self.variable_viewer.count() + 10)
+
+        if self.variable_viewer.count() == 0:
+            self.variable_viewer.setMaximumHeight(0)
 
         for feat in self.available_features:
             item = QListWidgetItem(feat)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Unchecked)
             self.feature_selector.addItem(item)
+
+        self.feature_selector.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        self.feature_selector.setMaximumHeight(self.feature_selector.sizeHintForRow(0) * self.feature_selector.count() + 10)
 
         self.feature_selector.itemChanged.connect(self.update_visible_features)
         self.waveform_viewer.waveformClicked.connect(self.play_from_waveform)
@@ -152,6 +176,12 @@ class MainWindow(QMainWindow):
         top_row1.addWidget(self.folder_label)
         top_row1.addStretch()
 
+        # Open in Praat button
+        self.open_in_praat_button = QPushButton("Open in Praat")
+        self.open_in_praat_button.setEnabled(False)
+        self.open_in_praat_button.clicked.connect(self.open_in_praat)
+        top_row1.addWidget(self.open_in_praat_button)
+
         # Row 2: Tier selector + edit checkbox
         top_row2 = QHBoxLayout()
         tier_label = QLabel("Select Tier:")
@@ -175,15 +205,82 @@ class MainWindow(QMainWindow):
         left_panel.setLayout(left_layout)
 
         # Right panel (feature selector + variable viewer)
-        right_panel = QWidget()
-        right_layout = QVBoxLayout()
-        right_layout.addWidget(QLabel("Show Features:"))
-        right_layout.addWidget(self.feature_selector)
-        right_layout.addWidget(self.variable_viewer)
-        right_layout.addStretch()
-        right_panel.setLayout(right_layout)
+        features_group = QGroupBox("Show Features")
+        features_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                margin-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 3px;
+            }
+        """)
+        features_layout = QVBoxLayout()
+        features_layout.setContentsMargins(10, 10, 10, 10)
+        features_layout.setSpacing(5)
+        features_layout.addWidget(self.feature_selector)
+        features_group.setLayout(features_layout)
 
-        # Splitter
+        variables_group = QGroupBox("Extracted Variables")
+        variables_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                margin-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 3px;
+            }
+        """)
+        # Stack que contiene el viewer o el placeholder
+        self.variable_stack = QStackedLayout()
+        self.variable_stack.addWidget(self.variable_placeholder)
+        self.variable_stack.addWidget(self.variable_viewer)
+
+        # Layout interno sin márgenes ni expansión forzada
+        variable_layout = QVBoxLayout()
+        variable_layout.setContentsMargins(0, 0, 0, 0)
+        variable_layout.setSpacing(0)
+        variable_layout.addLayout(self.variable_stack)
+
+        # Contenedor que limita expansión vertical
+        variable_container = QWidget()
+        variable_container.setLayout(variable_layout)
+        variable_container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+
+        # Grupo con margen visual externo
+        variables_group = QGroupBox("Extracted Variables")
+        variables_group.setStyleSheet("QGroupBox { font-weight: bold; margin-top: 10px; }")
+        group_layout = QVBoxLayout()
+        group_layout.setContentsMargins(10, 10, 10, 10)
+        group_layout.setSpacing(0)
+        group_layout.addWidget(variable_container)
+        variables_group.setLayout(group_layout)
+
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout()
+        scroll_layout.setContentsMargins(10, 10, 10, 10)
+        scroll_layout.setSpacing(25)
+        scroll_layout.addWidget(features_group)
+        scroll_layout.addWidget(variables_group)
+        scroll_layout.addStretch()
+        scroll_widget.setLayout(scroll_layout)
+        scroll_area.setWidget(scroll_widget)
+
+        right_panel = QWidget()
+        right_panel_layout = QVBoxLayout()
+        right_panel_layout.addWidget(scroll_area)
+        right_panel.setLayout(right_panel_layout)
+        self.right_panel = right_panel
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(right_panel)
@@ -193,12 +290,6 @@ class MainWindow(QMainWindow):
 
         self.variable_viewer.itemDoubleClicked.connect(self.rename_variable_column)
         self._need_to_rebuild_vars = True
-
-        # Open in Praat button
-        self.open_in_praat_button = QPushButton("Open in Praat")
-        self.open_in_praat_button.setEnabled(False)
-        self.open_in_praat_button.clicked.connect(self.open_in_praat)
-        top_row1.addWidget(self.open_in_praat_button)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -317,29 +408,61 @@ class MainWindow(QMainWindow):
 
         self.refresh_table()
 
+    def _show_no_variable_message(self):
+        """Display a placeholder message when no variables are detected"""
+        item = QListWidgetItem()
+        item.setText("🔍 No variables detected — labels with '-' will appear here as separate columns")
+        item.setForeground(QColor("#444"))
+
+        font = item.font()
+        font.setItalic(True)
+        item.setFont(font)
+
+        item.setTextAlignment(Qt.AlignmentFlag.AlignLeft)
+        item.setSizeHint(QSize(item.sizeHint().width(), 40))
+
+        self.variable_viewer.addItem(item)
+
     def build_variable_list(self):
-        """Build the list of variable columns based on detected patterns"""
-        self.variable_viewer.blockSignals(True)
+        """Detect and display variables extracted from hyphenated labels."""
         self.variable_viewer.clear()
 
-        if self.split_labels:
-            max_parts = max(row[1].count("-") + 1 for row in self.tier_intervals)
-            self.variable_viewer.setDisabled(False)
-            for i in range(max_parts):
-                item = QListWidgetItem(f"Var{i+1}")
-                item.setFlags(
-                    Qt.ItemFlag.ItemIsEnabled |
-                    Qt.ItemFlag.ItemIsUserCheckable |
-                    Qt.ItemFlag.ItemIsSelectable
-                )
-                item.setCheckState(Qt.CheckState.Unchecked)
-                self.variable_viewer.addItem(item)
-        else:
-            self.variable_viewer.addItem("🔍 No variables detected")
+        if not self.split_labels:
+            self.variable_stack.setCurrentIndex(0)  # Show placeholder
             self.variable_viewer.setDisabled(True)
+            return
 
-        self.variable_viewer.blockSignals(False)
-        self.variable_viewer.itemChanged.connect(self.refresh_table)
+        if not hasattr(self, "current_data") or not self.current_data:
+            self.variable_stack.setCurrentIndex(0)
+            self.variable_viewer.setDisabled(True)
+            return
+
+        if "Label" not in self.current_data[0]:
+            self.variable_stack.setCurrentIndex(0)
+            self.variable_viewer.setDisabled(True)
+            return
+
+        # Extract parts from labels
+        split_rows = [row["Label"].split("-") for row in self.current_data]
+        max_parts = max(len(parts) for parts in split_rows)
+
+        self.variable_columns = []  # Reset variable column names
+        for i in range(max_parts):
+            var_values = []
+            for parts in split_rows:
+                value = parts[i] if i < len(parts) else ""
+                var_values.append(value)
+
+            col_name = f"Var{i+1}"
+            self.variable_columns.append(col_name)
+            self.variable_viewer.addItem(col_name)
+
+        self.variable_stack.setCurrentIndex(1)  # Show list
+        self.variable_viewer.setDisabled(False)
+
+        # Adjust height of the list
+        row_height = self.variable_viewer.sizeHintForRow(0)
+        self.variable_viewer.setMaximumHeight(row_height * self.variable_viewer.count() + 10)
 
     def load_folder(self):
         """Load folder containing audio and TextGrid files"""
