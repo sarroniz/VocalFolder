@@ -52,6 +52,14 @@
 
 ---
 
+## 🖼️ Screenshot
+
+<p align="center">
+  <img src="assets/screenshots/vocalfolder_main_ui.png" alt="Vocal Folder UI" width="800">
+</p>
+
+---
+
 ## 🚀 Getting Started
 
 1. **Clone & install**  
