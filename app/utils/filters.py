@@ -17,24 +17,24 @@ def create_filter_menu(parent, col, unique_values, active_filters, callback):
         menu = QMenu(parent)
 
         # Select All
-        select_all_action = QAction("Select All", parent)
-        select_all_action.triggered.connect(lambda: callback("select_all", col, unique_values))
-        menu.addAction(select_all_action)
+        act_all = QAction("Select All", parent)
+        act_all.triggered.connect(lambda _, c=col, vals=unique_values: callback("select_all", c, vals))
+        menu.addAction(act_all)
 
         # Clear All
-        clear_all_action = QAction("Clear All", parent)
-        clear_all_action.triggered.connect(lambda: callback("clear_all", col, unique_values))
-        menu.addAction(clear_all_action)
+        act_none = QAction("Clear All", parent)
+        act_none.triggered.connect(lambda _, c=col: callback("clear_all", c))
+        menu.addAction(act_none)
 
         menu.addSeparator()
 
         # Individual options
         for val in sorted(unique_values):
-            action = QAction(val, parent)
-            action.setCheckable(True)
-            action.setChecked(val in active_filters.get(col, set()))
-            action.toggled.connect(lambda checked, v=val: callback("toggle", col, v, checked))
-            menu.addAction(action)
+            a = QAction(val, parent)
+            a.setCheckable(True)
+            a.setChecked(val in active_filters.get(col, unique_values))
+            a.toggled.connect(lambda checked, c=col, v=val: callback("toggle", c, v, checked))
+            menu.addAction(a)
 
         return menu
     except Exception as e:

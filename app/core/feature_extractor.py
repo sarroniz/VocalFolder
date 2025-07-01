@@ -9,6 +9,17 @@ _feature_caches = {
     "intensity": {},
     "zcr": {},
     "spectral_centroid": {},
+    "pitch": {},
+    "jitter": {},
+    "shimmer": {},
+    "hnr": {},
+    "rms": {},
+    "rolloff": {},
+    "bandwidth": {},
+    "flatness": {},
+    "contrast": {},
+    "mfcc": {},
+    "cpp": {},
 }
 
 formant_mode = "midpoint" 
@@ -19,7 +30,7 @@ def clear_all_feature_caches():
         cache.clear()
         print(f"🧹 Cleared cache: {name}")
 
-
+# Intensity (mean dB)
 def compute_mean_intensity(wav_path, start_time, end_time):
     # No se cachea porque no se usa en el dispatcher actual
     try:
@@ -38,7 +49,7 @@ def compute_mean_intensity(wav_path, start_time, end_time):
         print(f"❌ Error computing intensity: {e}")
         return None
 
-
+# Zero Crossing Rate
 def compute_zcr(wav_path, start_time, end_time):
     key = (wav_path, round(start_time, 4), round(end_time, 4))
     cache = _feature_caches["zcr"]
@@ -66,7 +77,7 @@ def compute_zcr(wav_path, start_time, end_time):
         print(f"❌ Error computing ZCR: {e}")
         return None
 
-
+# Intensity at midpoint
 def compute_intensity_at_midpoint(wav_path, start_time, end_time):
     key = (wav_path, round(start_time, 4), round(end_time, 4))
     cache = _feature_caches["intensity"]
@@ -93,7 +104,7 @@ def compute_intensity_at_midpoint(wav_path, start_time, end_time):
         print(f"❌ Error computing midpoint intensity: {e}")
         return None
 
-
+# Spectral Centroid
 def compute_spectral_centroid(wav_path, start, end):
     key = (wav_path, round(start, 4), round(end, 4))
     cache = _feature_caches["spectral_centroid"]
@@ -110,7 +121,7 @@ def compute_spectral_centroid(wav_path, start, end):
         print(f"❌ Error computing spectral centroid for {wav_path} [{start}-{end}]: {e}")
     return None
 
-
+# Formants (F1, F2, F3)
 def compute_formants(wav_path, start_time, end_time):
     key = (wav_path, round(start_time, 4), round(end_time, 4), formant_mode)
     cache = _feature_caches["formants"]
@@ -145,9 +156,145 @@ def compute_formants(wav_path, start_time, end_time):
         print(f"❌ Error computing formants: {e}")
         return [None, None, None]
 
+# Pitch (mean F0)
+def compute_pitch_mean(wav_path, start_time, end_time):
+    key = (wav_path, start_time, end_time)
+    cache = _feature_caches['pitch']
+    if key in cache:
+        return cache[key]
+    snd = parselmouth.Sound(wav_path).extract_part(start_time, end_time)
+    pitch = snd.to_pitch()
+    f0 = pitch.selected_array['frequency']
+    valid = f0[f0>0]
+    val = float(np.mean(valid)) if valid.size>0 else None
+    cache[key] = round(val,2) if val is not None else None
+    return cache[key]
 
+# Jitter (local)
+def compute_jitter(wav_path, start_time, end_time):
+    key = (wav_path, start_time, end_time)
+    cache = _feature_caches['jitter']
+    if key in cache:
+        return cache[key]
+    snd = parselmouth.Sound(wav_path)
+    segment = snd.extract_part(start_time, end_time)
+    pp = segment.to_point_process_cc()
+    jitter_local = call(pp, "Get jitter (local)", 0, 0, 0, 0, 0)
+    cache[key] = round(jitter_local,4)
+    return cache[key]
+
+# Shimmer (local)
+def compute_shimmer(wav_path, start_time, end_time):
+    key = (wav_path, start_time, end_time)
+    cache = _feature_caches['shimmer']
+    if key in cache:
+        return cache[key]
+    snd = parselmouth.Sound(wav_path)
+    segment = snd.extract_part(start_time, end_time)
+    pp = segment.to_point_process_cc()
+    shimmer_local = call(pp, "Get shimmer (local)", 0, 0, 0, 0, 0, 0)
+    cache[key] = round(shimmer_local,4)
+    return cache[key]
+
+# Harmonic-to-noise ratio
+def compute_hnr(wav_path, start_time, end_time):
+    key = (wav_path, start_time, end_time)
+    cache = _feature_caches['hnr']
+    if key in cache:
+        return cache[key]
+    snd = parselmouth.Sound(wav_path).extract_part(start_time, end_time)
+    harm = snd.to_harmonicity()
+    mid = (start_time+end_time)/2
+    val = harm.get_value_at_time(mid)
+    cache[key] = round(val,2) if val is not None else None
+    return cache[key]
+
+# RMS energy
+def compute_rms(wav_path, start, end):
+    key = (wav_path, start, end)
+    cache = _feature_caches['rms']
+    if key in cache:
+        return cache[key]
+    y, sr = librosa.load(wav_path, sr=None, offset=start, duration=end-start)
+    rms = librosa.feature.rms(y=y)
+    val = float(np.mean(rms)) if rms.size>0 else None
+    cache[key] = round(val,4) if val is not None else None
+    return cache[key]
+
+# Spectral rolloff
+def compute_rolloff(wav_path, start, end, roll_percent=0.85):
+    key = (wav_path, start, end)
+    cache = _feature_caches['rolloff']
+    if key in cache:
+        return cache[key]
+    y, sr = librosa.load(wav_path, sr=None, offset=start, duration=end-start)
+    roll = librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=roll_percent)
+    val = float(np.mean(roll)) if roll.size>0 else None
+    cache[key] = round(val,2) if val is not None else None
+    return cache[key]
+
+# Spectral bandwidth
+def compute_bandwidth(wav_path, start, end, p=2):
+    key = (wav_path, start, end)
+    cache = _feature_caches['bandwidth']
+    if key in cache:
+        return cache[key]
+    y, sr = librosa.load(wav_path, sr=None, offset=start, duration=end-start)
+    bw = librosa.feature.spectral_bandwidth(y=y, sr=sr, p=p)
+    val = float(np.mean(bw)) if bw.size>0 else None
+    cache[key] = round(val,2) if val is not None else None
+    return cache[key]
+
+# Spectral flatness
+def compute_flatness(wav_path, start, end):
+    key = (wav_path, start, end)
+    cache = _feature_caches['flatness']
+    if key in cache:
+        return cache[key]
+    y, sr = librosa.load(wav_path, sr=None, offset=start, duration=end-start)
+    flat = librosa.feature.spectral_flatness(y=y)
+    val = float(np.mean(flat)) if flat.size>0 else None
+    cache[key] = round(val,4) if val is not None else None
+    return cache[key]
+
+# Spectral contrast
+def compute_contrast(wav_path, start, end):
+    key = (wav_path, start, end)
+    cache = _feature_caches['contrast']
+    if key in cache:
+        return cache[key]
+    y, sr = librosa.load(wav_path, sr=None, offset=start, duration=end-start)
+    contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
+    val = float(np.mean(contrast)) if contrast.size>0 else None
+    cache[key] = round(val,2) if val is not None else None
+    return cache[key]
+
+# MFCC (mean of first coefficient)
+def compute_mfcc1(wav_path, start, end, n_mfcc=13):
+    key = (wav_path, start, end)
+    cache = _feature_caches['mfcc']
+    if key in cache:
+        return cache[key]
+    y, sr = librosa.load(wav_path, sr=None, offset=start, duration=end-start)
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
+    val = float(np.mean(mfcc[0])) if mfcc.shape[0]>0 else None
+    cache[key] = round(val,2) if val is not None else None
+    return cache[key]
+
+# Cepstral Peak Prominence (stub)
+def compute_cpp(wav_path, start, end):
+    # Requires Praat-specific call; stub for now
+    key = (wav_path, start, end)
+    cache = _feature_caches['cpp']
+    if key in cache:
+        return cache[key]
+    # placeholder: return None
+    cache[key] = None
+    return None
+
+
+# Dispatcher for computing feature values
 def compute_feature_value(feature, wav_path, start, end, duration):
-    """Dispatcher for computing a feature value"""
     try:
         if feature == "Duration":
             return duration
@@ -163,6 +310,28 @@ def compute_feature_value(feature, wav_path, start, end, duration):
             return compute_formants(wav_path, start, end)[1]
         elif feature == "F3":
             return compute_formants(wav_path, start, end)[2]
+        elif feature == "Mean F0":
+            return compute_pitch_mean(wav_path, start, end)
+        elif feature == "Jitter":
+            return compute_jitter(wav_path, start, end)
+        elif feature == "Shimmer":
+            return compute_shimmer(wav_path, start, end)
+        elif feature == "HNR":
+            return compute_hnr(wav_path, start, end)
+        elif feature == "RMS":
+            return compute_rms(wav_path, start, end)
+        elif feature == "Rolloff":
+            return compute_rolloff(wav_path, start, end)
+        elif feature == "Bandwidth":
+            return compute_bandwidth(wav_path, start, end)
+        elif feature == "Flatness":
+            return compute_flatness(wav_path, start, end)
+        elif feature == "Contrast":
+            return compute_contrast(wav_path, start, end)
+        elif feature == "MFCC1":
+            return compute_mfcc1(wav_path, start, end)
+        elif feature == "CPP":
+            return compute_cpp(wav_path, start, end)
     except Exception as e:
         print(f"❌ Error computing {feature}: {e}")
     return None

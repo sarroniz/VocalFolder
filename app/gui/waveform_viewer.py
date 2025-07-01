@@ -92,9 +92,9 @@ class WaveformViewer(QWidget):
             if self.spec_freq_max is not None:
                 self.spec_ax.set_ylim(self.spec_freq_min, self.spec_freq_max)
             
-            if start is not None and end is not None:
+            # if start is not None and end is not None:
                 # translucent red span
-                self.spec_ax.axvspan(start, end, alpha=0.3, color='red')
+                # self.spec_ax.axvspan(start, end, alpha=0.3, color='red')
                 
             if zoom:
                 self.spec_ax.set_xlim(start, end)
@@ -139,17 +139,17 @@ class WaveformViewer(QWidget):
             seg_t = np.arange(si, ei) / rate
             seg_d = self.current_data[si:ei]
             
-            # Plot highlighted segment in orange/yellow
+            # Plot highlighted segment
             highlight_line = self.wave_ax.plot(seg_t, seg_d, color='steelblue', 
                                              linewidth=1.0, alpha=0.8, 
                                              label='_highlight_waveform')[0]
             highlight_line.set_zorder(10)  # Bring to front
             
             # Add highlight to spectrogram
-            highlight_span = self.spec_ax.axvspan(start_time, end_time, 
-                                                alpha=0.4, color='steelblue', 
-                                                label='_highlight_spectrogram')
-            highlight_span.set_zorder(10)  # Bring to front
+            # highlight_span = self.spec_ax.axvspan(start_time, end_time, 
+            #                                     alpha=0.4, color='steelblue', 
+            #                                     label='_highlight_spectrogram')
+            # highlight_span.set_zorder(10)  # Bring to front
             
             self.canvas.draw()
             

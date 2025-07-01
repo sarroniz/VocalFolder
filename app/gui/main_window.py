@@ -25,7 +25,10 @@ from app.utils.filters import (
     create_filter_menu,
     show_menu_near_column
 )
+import pandas as pd
 from app.utils.external_tools import launch_praat
+from app.utils.column_stats_panel import ColumnStatsPanel
+
 
 def shorten_path(path: str, max_chars: int = 60) -> str:
     if len(path) <= max_chars:
@@ -53,11 +56,29 @@ class MainWindow(QMainWindow):
             os.path.join(os.path.dirname(__file__), '..', '..')
         )
         icon_path = os.path.join(base_dir, 'assets', 'icons', 'vocalfolder_icon.png')
-
         self.setWindowIcon(QIcon(icon_path))
 
         # Available features for the table
-        self.available_features = ["Duration", "Mid Intensity", "ZCR", "Spectral Centroid", "F1", "F2", "F3"]
+        self.available_features = [
+            "Duration",
+            "Mid Intensity",
+            "Mean F0",
+            "Jitter",
+            "Shimmer",
+            "HNR",
+            "RMS Energy",
+            "Spectral Centroid",
+            "Spectral Rolloff",
+            "Spectral Bandwidth",
+            "Spectral Flatness",
+            "Spectral Contrast",
+            "MFCC1",
+            "CPP",
+            "ZCR",
+            "F1",
+            "F2",
+            "F3",
+        ]
         self.selected_features = set()
 
         self.variable_column_indices = []
@@ -145,7 +166,10 @@ class MainWindow(QMainWindow):
         self.table.cellClicked.connect(self.on_table_select)
         self.table.currentCellChanged.connect(self.on_table_select)
         self.table.installEventFilter(self)
-        self.table.horizontalHeader().sectionClicked.connect(self.show_filter_menu)
+        # self.table.horizontalHeader().sectionClicked.connect(self.show_filter_menu)
+        header = self.table.horizontalHeader()
+        header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        header.customContextMenuRequested.connect(self.on_header_context_menu)
 
         self.toggle_table_editing(0)
 
@@ -160,6 +184,8 @@ class MainWindow(QMainWindow):
         self._load_user_settings()
 
         self.resize(1200, 800)
+    
+        self.table.horizontalHeader().sectionClicked.connect(self.on_column_header_clicked)
 
     def _setup_ui(self):
         """Setup the main UI layout"""
@@ -224,6 +250,7 @@ class MainWindow(QMainWindow):
         features_layout.addWidget(self.feature_selector)
         features_group.setLayout(features_layout)
 
+        # ——— Extracted Variables (single, nicely styled group) ———
         variables_group = QGroupBox("Extracted Variables")
         variables_group.setStyleSheet("""
             QGroupBox {
@@ -237,30 +264,18 @@ class MainWindow(QMainWindow):
                 padding: 0 3px;
             }
         """)
-        # Stack que contiene el viewer o el placeholder
+
+        # stack of either the placeholder label or the real list
         self.variable_stack = QStackedLayout()
         self.variable_stack.addWidget(self.variable_placeholder)
         self.variable_stack.addWidget(self.variable_viewer)
 
-        # Layout interno sin márgenes ni expansión forzada
-        variable_layout = QVBoxLayout()
-        variable_layout.setContentsMargins(0, 0, 0, 0)
-        variable_layout.setSpacing(0)
-        variable_layout.addLayout(self.variable_stack)
+        var_layout = QVBoxLayout()
+        var_layout.setContentsMargins(10, 10, 10, 10)
+        var_layout.setSpacing(5)
+        var_layout.addLayout(self.variable_stack)
 
-        # Contenedor que limita expansión vertical
-        variable_container = QWidget()
-        variable_container.setLayout(variable_layout)
-        variable_container.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-
-        # Grupo con margen visual externo
-        variables_group = QGroupBox("Extracted Variables")
-        variables_group.setStyleSheet("QGroupBox { font-weight: bold; margin-top: 10px; }")
-        group_layout = QVBoxLayout()
-        group_layout.setContentsMargins(10, 10, 10, 10)
-        group_layout.setSpacing(0)
-        group_layout.addWidget(variable_container)
-        variables_group.setLayout(group_layout)
+        variables_group.setLayout(var_layout)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -276,9 +291,12 @@ class MainWindow(QMainWindow):
         scroll_area.setWidget(scroll_widget)
 
         right_panel = QWidget()
-        right_panel_layout = QVBoxLayout()
-        right_panel_layout.addWidget(scroll_area)
-        right_panel.setLayout(right_panel_layout)
+        self.right_layout = QVBoxLayout()
+        self.right_layout.addWidget(scroll_area)
+        self.column_stats_panel = ColumnStatsPanel()
+        self.right_layout.addWidget(self.column_stats_panel)
+
+        right_panel.setLayout(self.right_layout)
         self.right_panel = right_panel
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -318,10 +336,15 @@ class MainWindow(QMainWindow):
             print(f"❌ Error opening in Praat: {e}")
             QMessageBox.critical(self, "Error", f"Could not open in Praat:\n{e}")
 
-    def on_tier_changed(self):
-        """Handle tier selection change"""
-        self._need_to_rebuild_vars = True
-        self.clear_all_filters()  # Clear filters when changing tiers
+    def on_tier_changed(self, index=None):
+        if index is None:
+            index = self.tier_dropdown.currentIndex()
+
+        if index < 0 or index >= len(self._raw_tiers):
+            return
+
+        tier_name = self._raw_tiers[index]
+        self.current_tier = tier_name
         self.refresh_table()
 
     def _create_menus(self):
@@ -425,44 +448,52 @@ class MainWindow(QMainWindow):
 
     def build_variable_list(self):
         """Detect and display variables extracted from hyphenated labels."""
+        # 1) clear old items
         self.variable_viewer.clear()
 
-        if not self.split_labels:
-            self.variable_stack.setCurrentIndex(0)  # Show placeholder
-            self.variable_viewer.setDisabled(True)
-            return
-
-        if not hasattr(self, "current_data") or not self.current_data:
+        # 2) if no splitting, show placeholder
+        if not getattr(self, "split_labels", False) \
+        or not getattr(self, "current_data", None) \
+        or "Label" not in self.current_data[0]:
             self.variable_stack.setCurrentIndex(0)
             self.variable_viewer.setDisabled(True)
             return
 
-        if "Label" not in self.current_data[0]:
+        # 3) gather only the hyphenated rows
+        split_rows = [r["Label"].split("-")
+                    for r in self.current_data
+                    if "-" in r["Label"]]
+        if not split_rows:
             self.variable_stack.setCurrentIndex(0)
             self.variable_viewer.setDisabled(True)
             return
 
-        # Extract parts from labels
-        split_rows = [row["Label"].split("-") for row in self.current_data]
+        # 4) compute how many VarN columns
         max_parts = max(len(parts) for parts in split_rows)
+        self.variable_columns = [f"Var{i+1}" for i in range(max_parts)]
 
-        self.variable_columns = []  # Reset variable column names
-        for i in range(max_parts):
-            var_values = []
-            for parts in split_rows:
-                value = parts[i] if i < len(parts) else ""
-                var_values.append(value)
-
-            col_name = f"Var{i+1}"
-            self.variable_columns.append(col_name)
-            self.variable_viewer.addItem(col_name)
-
-        self.variable_stack.setCurrentIndex(1)  # Show list
+        # 5) show the real list
+        self.variable_stack.setCurrentIndex(1)
         self.variable_viewer.setDisabled(False)
 
-        # Adjust height of the list
-        row_height = self.variable_viewer.sizeHintForRow(0)
-        self.variable_viewer.setMaximumHeight(row_height * self.variable_viewer.count() + 10)
+        # 6) add each VarN as an UNCHECKED item by default
+        for col_name in self.variable_columns:
+            item = QListWidgetItem(col_name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            self.variable_viewer.addItem(item)
+
+        # 7) cap the visible height to 6 rows
+        max_visible = min(len(self.variable_columns), 6)
+        row_h = self.variable_viewer.sizeHintForRow(0)
+        self.variable_viewer.setMaximumHeight(max_visible * row_h + 4)
+
+        # 8) reconnect so toggles rebuild the table
+        try:
+            self.variable_viewer.itemChanged.disconnect(self.refresh_table)
+        except Exception:
+            pass
+        self.variable_viewer.itemChanged.connect(self.refresh_table)
 
     def load_folder(self):
         """Load folder containing audio and TextGrid files"""
@@ -525,7 +556,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error",
                 f"Failed to load folder:\n{e}")
 
-
     def refresh_table(self):
         """Refresh the table with current data and settings"""
         self._clear_filter_cache()
@@ -533,10 +563,7 @@ class MainWindow(QMainWindow):
         if not self.file_pairs or not hasattr(self, "_raw_tiers"):
             return
 
-        # Ensure a tier is selected
-        if self.tier_dropdown.count() and self.tier_dropdown.currentIndex() < 0:
-            self.tier_dropdown.setCurrentIndex(0)
-
+        # Determine selected tier...
         idx = self.tier_dropdown.currentIndex()
         if idx < 0 or idx >= len(self._raw_tiers):
             return
@@ -544,13 +571,13 @@ class MainWindow(QMainWindow):
 
         self.tier_intervals = []
         label_has_dash = False
+        current_data = []
 
-        # Collect intervals, skipping TextGrids without this tier
+        # Gather intervals & detect hyphens
         for name, wav_path, tg_path in self.file_pairs:
             try:
                 intervals = extract_intervals(tg_path, tier_name=selected_tier)
             except ValueError:
-                # Not an IntervalTier: skip silently
                 continue
 
             for intv in intervals:
@@ -560,38 +587,47 @@ class MainWindow(QMainWindow):
                 start = float(intv["start"])
                 end   = float(intv["end"])
                 dur   = round(end - start, 4)
+
                 self.tier_intervals.append([name, lab, start, end, dur])
+                current_data.append({
+                    "File": name,
+                    "Label": lab,
+                    "Start": start,
+                    "End": end,
+                    "Duration": dur
+                })
 
         if not self.tier_intervals:
             print(f"⚠️ No intervals found for tier '{selected_tier}'")
             return
 
-        # Should we split labels into variables?
+        # ← Set both the raw data *and* the split flag
+        self.current_data = current_data
         self.split_labels = label_has_dash
 
-        if self._need_to_rebuild_vars:
+        # only rebuild the variable‐viewer if our "dash in labels" state actually changed
+        if not hasattr(self, '_last_label_dash_state') \
+           or self._last_label_dash_state != label_has_dash:
             self.build_variable_list()
-            self._need_to_rebuild_vars = False
 
-        # Temporarily disconnect change signal
+        self._last_label_dash_state = label_has_dash
+
+        # …then do the usual table recreation…
         try:
             self.table.itemChanged.disconnect(self.mark_as_modified)
         except Exception:
             pass
 
-        # Build and fill table
         self._build_table_structure()
         self._populate_table_data()
 
-        # Reconnect and reset edits
         self.table.itemChanged.connect(self.mark_as_modified)
         self.modified_cells.clear()
 
-        # Reapply any active filters
         self.update_variable_column_indices()
         if self.active_filters:
             self._apply_all_filters()
-
+        
 
     def _build_table_structure(self):
         """Build the table structure with headers and columns"""
@@ -688,6 +724,28 @@ class MainWindow(QMainWindow):
                 show_menu_near_column(self.table, menu, col)
         except Exception as e:
             print(f"❌ Error showing filter menu: {e}")
+
+    def _filter_callback(self, action, col, value=None, state=None):
+        if action == "select_all":
+            # value is the full set passed by create_filter_menu
+            vals = value or self.cached_unique_values.get(col, [])
+            self.active_filters[col] = set(vals)
+
+        elif action == "clear_all":
+            self.active_filters[col] = set()
+
+        elif action == "toggle":
+            # **initialize** to the full set on the first toggle
+            if col not in self.active_filters:
+                self.active_filters[col] = set(self.cached_unique_values.get(col, []))
+            s = self.active_filters[col]
+            if state:
+                s.add(value)
+            else:
+                s.discard(value)
+
+        # re‐apply filters
+        self._queue_filter_update()
 
     def _on_filter_menu_close(self):
         """Handle filter menu close"""
@@ -1392,3 +1450,57 @@ class MainWindow(QMainWindow):
                     value = compute_feature_value(feature, wav_path, start, end, duration)
                     item = QTableWidgetItem(str(value) if value is not None else "")
                     self.table.setItem(row_idx, col_idx, item)
+
+    def on_column_header_clicked(self, column_index):
+        header_text = self.table.horizontalHeaderItem(column_index).text()
+        if header_text in ["File", "Interval"]:
+            return
+
+        # Rebuild headers list
+        headers = [
+            self.table.horizontalHeaderItem(i).text()
+            for i in range(self.table.columnCount())
+        ]
+
+        # Only include visible (unfiltered) rows
+        data = []
+        for row in range(self.table.rowCount()):
+            if self.table.isRowHidden(row):
+                continue
+
+            row_data = {}
+            for col in range(self.table.columnCount()):
+                item = self.table.item(row, col)
+                val = item.text() if item else ""
+                # Attempt numeric conversion for non-meta columns
+                if headers[col] not in ["File", "Interval"]:
+                    try:
+                        val = float(val)
+                    except ValueError:
+                        pass
+                row_data[headers[col]] = val
+            data.append(row_data)
+
+        df = pd.DataFrame(data)
+        self.column_stats_panel.update_stats(df, header_text)
+
+    def on_header_context_menu(self, pos):
+        header = self.table.horizontalHeader()
+        col    = header.logicalIndexAt(pos)
+        if col not in self.variable_column_indices:
+            return
+
+        vals = get_unique_values_for_column(self.table, col)
+        if not vals:
+            return
+        self.cached_unique_values[col] = vals
+
+        menu = create_filter_menu(self, col, vals, self.active_filters, self._filter_callback)
+        if not menu:
+            return
+
+        # compute x offset of the clicked section
+        section_pos = header.sectionViewportPosition(col)
+        # map to global, placing menu just below the header bar
+        global_pos = header.mapToGlobal(QPoint(section_pos, header.height()))
+        menu.exec(global_pos)
